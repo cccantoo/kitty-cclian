@@ -115,7 +115,7 @@ if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
     const cert = fs.readFileSync(certPath);
 
     const httpsServer = https.createServer({ key, cert }, handleRequest);
-    httpsServer.listen(PORT, '0.0.0.0', () => {
+    httpsServer.listen(PORT, () => {
       console.log(`[${APP_NAME}] HTTPS 服务器已启动:`);
       console.log(`  电脑访问: https://localhost:${PORT}`);
       console.log(`  手机访问: https://<你的电脑IP>:${PORT}`);
@@ -135,7 +135,7 @@ if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
 }
 
 function startHTTP() {
-  http.createServer(handleRequest).listen(PORT, '0.0.0.0', () => {
+  http.createServer(handleRequest).listen(PORT, () => {
     console.log(`[${APP_NAME}] HTTP 服务器已启动: http://localhost:${PORT}`);
   });
 }
