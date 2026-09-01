@@ -1,0 +1,27 @@
+{
+  "name": "Kitty 账本 - KittyLedger",
+  "short_name": "KittyLedger",
+  "description": "粉色 Kitty 风格 · AI 聊天记账 + 备忘录",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#FF8FB5",
+  "background_color": "#FFF5F8",
+  "icons": [
+    {
+      "src": "./icons/app/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/app/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "scope": "./",
+  "lang": "zh-CN",
+  "categories": ["finance", "productivity"]
+}

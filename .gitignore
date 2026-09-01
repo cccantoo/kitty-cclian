@@ -1,0 +1,21 @@
+# Node
+node_modules/
+npm-debug.log
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# 证书（部署时单独管）
+cert.pem
+key.pem
+
+# 切图脚本 intermediate
+__pycache__/
+*.pyc
+
+# 临时
+*.log
+.tmp/

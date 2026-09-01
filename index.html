@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#FF8FB5">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" style="default">
+  <meta name="apple-mobile-web-app-title" content="Kitty 账本">
+  <meta name="mobile-web-app-capable" content="yes">
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" type="image/png" href="./icons/app/icon-192.png">
+  <link rel="apple-touch-icon" href="./icons/app/icon-512.png">
+  <title>Kitty 账本</title>
+  <link rel="stylesheet" href="./css/style.css">
+  <link rel="stylesheet" href="./css/report.css">
+</head>
+<body>
+
+<div id="app" class="app-container">
+
+  <!-- 顶部 Header -->
+  <header class="app-header">
+    <div class="header-brand">
+      <span class="brand-icon"><img src="./icons/kitty/sweet-home/9_11_house.png" alt="Kitty"></span>
+      <h1 class="brand-name">Kitty 账本</h1>
+    </div>
+    <div class="header-actions">
+      <button class="btn-icon" id="btnMemory" title="记忆设置" aria-label="记忆设置">
+        <span class="icon-brain">🧠</span>
+        <span class="badge-count hidden" id="memCount">0</span>
+      </button>
+      <button class="btn-icon" id="btnAI" title="AI 设置" aria-label="AI 设置">
+        <span class="icon-gear">⚙️</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- 三个页面容器 -->
+  <main id="pages" class="pages">
+
+    <!-- 会话页（默认） -->
+    <section class="page page-chat" data-page="chat">
+      <div class="chat-list" id="chatList">
+        <!-- 占位欢迎 -->
+        <div class="chat-msg msg-bot">
+          <div class="msg-avatar"><img class="msg-avatar-img" src="./icons/kitty/dessert/7_41_apple.png" alt="Kitty"></div>
+          <div class="msg-bubble">
+            <div class="msg-text">嗨～我是 Kitty 记账小助手 🎀 跟我说「今天花了 35 买奶茶」就能自动记账哦～</div>
+            <div class="msg-meta">试试问我：「这个月我最大笔开销是什么？」</div>
+          </div>
+        </div>
+      </div>
+      <div class="chat-composer">
+        <button class="btn-attach" id="btnChatAttach" title="附加" aria-label="附加">＋</button>
+        <input type="text" id="chatInput" class="chat-input" placeholder="跟 Kitty 说点什么…" autocomplete="off">
+        <button class="btn-send" id="btnChatSend" title="发送" aria-label="发送">🎀</button>
+      </div>
+    </section>
+
+    <!-- 记账页 -->
+    <section class="page page-ledger hidden" data-page="ledger">
+      <div class="ledger-summary">
+        <div class="summary-card income">
+          <div class="summary-label">本月收入</div>
+          <div class="summary-value" id="sumIncome">¥ 0</div>
+        </div>
+        <div class="summary-card expense">
+          <div class="summary-label">本月支出</div>
+          <div class="summary-value" id="sumExpense">¥ 0</div>
+        </div>
+        <div class="summary-card balance">
+          <div class="summary-label">结余</div>
+          <div class="summary-value" id="sumBalance">¥ 0</div>
+        </div>
+      </div>
+
+      <div class="ledger-tabs">
+        <button class="lt-tab active" data-view="list"><img class="lt-icon" src="./icons/kitty/office-life/10_41_note-pad.png" alt=""><span>列表</span></button>
+        <button class="lt-tab" data-view="chart"><img class="lt-icon" src="./icons/kitty/office-life/10_21_laptop.png" alt=""><span>报表</span></button>
+        <button class="lt-tab" data-view="budget"><img class="lt-icon" src="./icons/kitty/sweet-home/9_11_house.png" alt=""><span>预算</span></button>
+      </div>
+
+      <div class="ledger-views">
+        <div class="lt-view active" data-view="list">
+          <div class="tx-list" id="txList">
+            <div class="empty-hint">还没有记账～<br>从会话页说一句话开始记录吧 ✨</div>
+          </div>
+        </div>
+        <div class="lt-view" data-view="chart">
+          <div class="report">
+            <div class="month-nav">
+              <button id="chartPrev" class="btn-month" aria-label="上个月">‹</button>
+              <div class="month-label" id="chartMonth">—</div>
+              <button id="chartNext" class="btn-month" aria-label="下个月">›</button>
+            </div>
+            <div id="chartBody"></div>
+          </div>
+        </div>
+        <div class="lt-view" data-view="budget">
+          <div class="report">
+            <div class="month-nav">
+              <button id="budgetPrev" class="btn-month" aria-label="上个月">‹</button>
+              <div class="month-label" id="budgetMonth">—</div>
+              <button id="budgetNext" class="btn-month" aria-label="下个月">›</button>
+            </div>
+            <div id="budgetBody"></div>
+          </div>
+        </div>
+      </div>
+
+      <button class="fab-add" id="btnAddTx" title="手动记一笔" aria-label="手动记一笔">＋</button>
+    </section>
+
+    <!-- 备忘录页 -->
+    <section class="page page-memo hidden" data-page="memo">
+      <div class="memo-toolbar">
+        <input type="text" id="memoSearch" class="memo-search" placeholder="搜索备忘...">
+        <button class="btn-add-memo" id="btnAddMemo" title="新建备忘">＋ 新建</button>
+      </div>
+      <div class="memo-list" id="memoList">
+        <div class="empty-hint">还没有备忘录～<br>记录想记住的事 ✨</div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- 底部 Tab Bar -->
+  <nav class="tab-bar" role="tablist">
+    <button class="tab active" data-tab="chat" role="tab">
+      <span class="tab-icon"><img class="tab-icon-img" src="./icons/kitty/dessert/7_11_flower-kitty.png" alt=""></span><span class="tab-label">会话</span>
+    </button>
+    <button class="tab" data-tab="ledger" role="tab">
+      <span class="tab-icon"><img class="tab-icon-img" src="./icons/kitty/life-travel/8_42_shopping-cart.png" alt=""></span><span class="tab-label">记账</span>
+    </button>
+    <button class="tab" data-tab="memo" role="tab">
+      <span class="tab-icon"><img class="tab-icon-img" src="./icons/kitty/life-travel/8_11_notebook.png" alt=""></span><span class="tab-label">备忘</span>
+    </button>
+  </nav>
+
+</div>
+
+<!-- 记忆设置抽屉（半屏） -->
+<aside class="drawer" id="memoryDrawer" aria-hidden="true">
+  <div class="drawer-mask" data-drawer-close></div>
+  <div class="drawer-panel">
+    <div class="drawer-header">
+      <h2>🧠 记忆设置</h2>
+      <button class="btn-close" data-drawer-close aria-label="关闭">✕</button>
+    </div>
+    <div class="drawer-body">
+      <p class="hint">Kitty 会记住的「你的偏好」。可查看、修改、删除。</p>
+      <div class="pref-list" id="prefList">
+        <div class="empty-hint small">还没有偏好。<br>试着说「记住，我不喜欢吃香菜」✨</div>
+      </div>
+      <button class="btn-add-pref" id="btnAddPref">＋ 手动添加偏好</button>
+      <hr>
+      <h3>📦 数据管理</h3>
+      <div class="data-actions">
+        <button id="btnExport">📤 导出 JSON</button>
+        <button id="btnImport">📥 导入 JSON</button>
+        <button id="btnClearAll" class="danger">🗑️ 清空所有数据</button>
+      </div>
+    </div>
+  </div>
+</aside>
+
+<script src="./js/db.js"></script>
+<script src="./js/ai.js"></script>
+<script src="./js/app.js"></script>
+</body>
+</html>
