@@ -126,8 +126,19 @@
 
   function all(storeName) {
     return new Promise((resolve, reject) => {
-      const req = tx(storeName, "readonly").getAll();
-      req.onsuccess = (e) => resolve(e.target.result);
+      const results = [];
+      const req = tx(storeName, "readonly").openCursor();
+      req.onsuccess = (e) => {
+        const cursor = e.target.result;
+        if (cursor) {
+          // 兜底注入主键 id：部分浏览器 getAll() 不会把 autoIncrement 主键写回 value，
+          // 导致记录缺 id，后续 get(id)/update/delete 会因 key=undefined 报 DataError
+          results.push({ ...cursor.value, id: (cursor.value && cursor.value.id !== undefined) ? cursor.value.id : cursor.key });
+          cursor.continue();
+        } else {
+          resolve(results);
+        }
+      };
       req.onerror = (e) => reject(e.target.error);
     });
   }
