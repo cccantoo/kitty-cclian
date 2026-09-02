@@ -1269,13 +1269,23 @@
 
     modal.querySelectorAll("[data-modal-close]").forEach((b) => b.addEventListener("click", () => modal.classList.remove("open")));
     modal.querySelector("[data-modal-confirm]").addEventListener("click", async () => {
-      const ok = await onConfirm();
-      if (ok !== false) modal.classList.remove("open");
+      try {
+        const ok = await onConfirm();
+        if (ok !== false) modal.classList.remove("open");
+      } catch (e) {
+        console.error("[modal:confirm]", e);
+        toast("保存失败：" + ((e && e.message) || e), "error");
+      }
     });
     if (extraBtn) {
       modal.querySelector("[data-extra]").addEventListener("click", async () => {
-        const ok = await extraBtn.onClick();
-        if (ok !== false) modal.classList.remove("open");
+        try {
+          const ok = await extraBtn.onClick();
+          if (ok !== false) modal.classList.remove("open");
+        } catch (e) {
+          console.error("[modal:extra]", e);
+          toast("操作失败：" + ((e && e.message) || e), "error");
+        }
       });
     }
   }
