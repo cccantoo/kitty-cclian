@@ -218,7 +218,7 @@
 
   async function updateTransaction(id, patch) {
     const t = await this.get(STORE.TX, id);
-    return this.put(STORE.TX, { ...t, ...patch });
+    return this.put(STORE.TX, { ...t, ...patch, id });
   }
   async function deleteTransaction(id) {
     return this.del(STORE.TX, id);
@@ -234,7 +234,7 @@
   }
   async function updatePreference(id, patch) {
     const p = await this.get(STORE.PREF, id);
-    return this.put(STORE.PREF, { ...p, ...patch });
+    return this.put(STORE.PREF, { ...p, ...patch, id });
   }
   async function deletePreference(id) { return this.del(STORE.PREF, id); }
 
@@ -249,7 +249,7 @@
   }
   async function updateMemo(id, patch) {
     const m = await this.get(STORE.MEMO, id);
-    return this.put(STORE.MEMO, { ...m, ...patch, updatedAt: Date.now() });
+    return this.put(STORE.MEMO, { ...m, ...patch, id, updatedAt: Date.now() });
   }
   async function deleteMemo(id) { return this.del(STORE.MEMO, id); }
 
