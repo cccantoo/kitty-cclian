@@ -21,6 +21,34 @@
   const AVATAR_AI = "icons/kitty/dessert/7_41_apple.png";
   const AVATAR_USER = "icons/kitty/misc/3_12_vinyl-music.png";
 
+  // Kitty 图标库：用户自建分类时可选（96 个 @1x）
+  const KITTY_ICONS = [
+    "icons/kitty/dessert/7_11_flower-kitty.png", "icons/kitty/dessert/7_12_strawberry-cake.png", "icons/kitty/dessert/7_13_snow-mountain.png", "icons/kitty/dessert/7_21_packaged-kitty.png",
+    "icons/kitty/dessert/7_22_pudding.png", "icons/kitty/dessert/7_23_icecream-cone.png", "icons/kitty/dessert/7_31_riceball.png", "icons/kitty/dessert/7_32_fries.png",
+    "icons/kitty/dessert/7_33_apple-bag.png", "icons/kitty/dessert/7_41_apple.png", "icons/kitty/dessert/7_42_chips-square.png", "icons/kitty/dessert/7_43_cherry-fruit.png",
+    "icons/kitty/drink-snack/4_11_candy-skewer.png", "icons/kitty/drink-snack/4_12_strawberry-cake.png", "icons/kitty/drink-snack/4_13_ramen-bowl.png", "icons/kitty/drink-snack/4_21_cola.png",
+    "icons/kitty/drink-snack/4_22_bread-bag.png", "icons/kitty/drink-snack/4_23_icecream-sundae.png", "icons/kitty/drink-snack/4_31_coconut-water.png", "icons/kitty/drink-snack/4_32_frying-pan.png",
+    "icons/kitty/drink-snack/4_33_milk-box.png", "icons/kitty/drink-snack/4_41_chips.png", "icons/kitty/drink-snack/4_42_toaster.png", "icons/kitty/drink-snack/4_43_drink-cup.png",
+    "icons/kitty/fruit/11_11_pineapple.png", "icons/kitty/fruit/11_12_cherry.png", "icons/kitty/fruit/11_13_coconut.png", "icons/kitty/fruit/11_21_orange.png",
+    "icons/kitty/fruit/11_22_pineapple-slice.png", "icons/kitty/fruit/11_23_watermelon.png", "icons/kitty/fruit/11_31_strawberry.png", "icons/kitty/fruit/11_32_peach.png",
+    "icons/kitty/fruit/11_33_mango.png", "icons/kitty/fruit/11_41_dragonfruit.png", "icons/kitty/fruit/11_42_mangosteen.png", "icons/kitty/fruit/11_43_pear.png",
+    "icons/kitty/life-travel/5_11_ramen-bowl.png", "icons/kitty/life-travel/5_12_makeup-bag.png", "icons/kitty/life-travel/5_13_telephone.png", "icons/kitty/life-travel/5_21_camera.png",
+    "icons/kitty/life-travel/5_22_house.png", "icons/kitty/life-travel/5_23_perfume.png", "icons/kitty/life-travel/5_31_train.png", "icons/kitty/life-travel/5_32_singing.png",
+    "icons/kitty/life-travel/5_33_notebook.png", "icons/kitty/life-travel/5_41_coconut-drink.png", "icons/kitty/life-travel/5_42_car.png", "icons/kitty/life-travel/5_43_pen-holder.png",
+    "icons/kitty/life-travel/8_11_notebook.png", "icons/kitty/life-travel/8_12_plane.png", "icons/kitty/life-travel/8_13_house-cat.png", "icons/kitty/life-travel/8_21_basket-kitty.png",
+    "icons/kitty/life-travel/8_22_suitcase.png", "icons/kitty/life-travel/8_23_paper-bag.png", "icons/kitty/life-travel/8_31_bicycle.png", "icons/kitty/life-travel/8_32_car-mini.png",
+    "icons/kitty/life-travel/8_33_umbrella.png", "icons/kitty/life-travel/8_41_shopping-bag.png", "icons/kitty/life-travel/8_42_shopping-cart.png", "icons/kitty/life-travel/8_43_crystal-ball.png",
+    "icons/kitty/misc/3_11_cupcake.png", "icons/kitty/misc/3_12_vinyl-music.png", "icons/kitty/misc/3_13_chinese-knot.png", "icons/kitty/misc/3_21_fork-kitty.png",
+    "icons/kitty/misc/3_22_hotpot.png", "icons/kitty/misc/3_23_icecream.png", "icons/kitty/misc/3_31_bubble-tea.png", "icons/kitty/misc/3_32_omurice.png",
+    "icons/kitty/misc/3_33_birthday-cake.png", "icons/kitty/misc/3_41_plush-bag.png", "icons/kitty/misc/3_42_polaroid.png", "icons/kitty/misc/3_43_mango.png",
+    "icons/kitty/office-life/10_11_milk-bottle.png", "icons/kitty/office-life/10_12_radio.png", "icons/kitty/office-life/10_13_chips-bag.png", "icons/kitty/office-life/10_21_laptop.png",
+    "icons/kitty/office-life/10_22_walkie-talkie.png", "icons/kitty/office-life/10_23_envelope.png", "icons/kitty/office-life/10_31_guitar.png", "icons/kitty/office-life/10_32_handbag.png",
+    "icons/kitty/office-life/10_33_straw-hat.png", "icons/kitty/office-life/10_41_note-pad.png", "icons/kitty/office-life/10_42_soap-dispenser.png", "icons/kitty/office-life/10_43_popcorn.png",
+    "icons/kitty/sweet-home/9_11_house.png", "icons/kitty/sweet-home/9_12_gashapon.png", "icons/kitty/sweet-home/9_13_hello-pack.png", "icons/kitty/sweet-home/9_21_bubble-tea-pearl.png",
+    "icons/kitty/sweet-home/9_22_sushi-box.png", "icons/kitty/sweet-home/9_23_icecream-bowl.png", "icons/kitty/sweet-home/9_31_candy-jar.png", "icons/kitty/sweet-home/9_32_pancake.png",
+    "icons/kitty/sweet-home/9_33_donut.png", "icons/kitty/sweet-home/9_41_chips.png", "icons/kitty/sweet-home/9_42_coffee-cup.png", "icons/kitty/sweet-home/9_43_juice-box.png"
+  ];
+
   const state = {
     categories: [],
     prefs: [],
@@ -737,32 +765,51 @@
     showModal({
       title: "记一笔 🌸",
       bodyHtml: `
-        <div class="type-toggle">
-          <button class="active expense" data-type="expense">支出</button>
-          <button data-type="income">收入</button>
-          <button data-type="transfer">转账</button>
+        <div id="mTxMainWrap">
+          <div class="type-toggle">
+            <button class="active expense" data-type="expense">支出</button>
+            <button data-type="income">收入</button>
+            <button data-type="transfer">转账</button>
+          </div>
+          <div class="form-group">
+            <label class="form-label">金额</label>
+            <input type="number" id="mTxAmt" class="form-input" placeholder="0.00" step="0.01" inputmode="decimal">
+          </div>
+          <div id="mTxCatWrap" class="form-group">
+            <label class="form-label">分类</label>
+            <div class="cat-grid" id="mTxCats"></div>
+            <button type="button" class="btn-add-cat" id="mTxNewCatBtn">＋ 新增分类</button>
+          </div>
+          <div id="mTxAccWrap" class="form-group">
+            <label class="form-label">账户</label>
+            <select id="mTxAcc" class="form-select">${accOpts}</select>
+          </div>
+          <div id="mTxTransferWrap" class="form-group hidden">
+            <label class="form-label">转出账户</label>
+            <select id="mTxAccFrom" class="form-select">${accOpts}</select>
+            <label class="form-label" style="margin-top:10px">转入账户</label>
+            <select id="mTxAccTo" class="form-select">${accOpts}</select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">备注</label>
+            <textarea id="mTxNote" class="form-textarea" placeholder="（可选）"></textarea>
+          </div>
         </div>
-        <div class="form-group">
-          <label class="form-label">金额</label>
-          <input type="number" id="mTxAmt" class="form-input" placeholder="0.00" step="0.01" inputmode="decimal">
-        </div>
-        <div id="mTxCatWrap" class="form-group">
-          <label class="form-label">分类</label>
-          <div class="cat-grid" id="mTxCats"></div>
-        </div>
-        <div id="mTxAccWrap" class="form-group">
-          <label class="form-label">账户</label>
-          <select id="mTxAcc" class="form-select">${accOpts}</select>
-        </div>
-        <div id="mTxTransferWrap" class="form-group hidden">
-          <label class="form-label">转出账户</label>
-          <select id="mTxAccFrom" class="form-select">${accOpts}</select>
-          <label class="form-label" style="margin-top:10px">转入账户</label>
-          <select id="mTxAccTo" class="form-select">${accOpts}</select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">备注</label>
-          <textarea id="mTxNote" class="form-textarea" placeholder="（可选）"></textarea>
+
+        <!-- 新增分类（内联切换） -->
+        <div id="mTxNewCatWrap" class="hidden">
+          <div class="form-group">
+            <label class="form-label">分类名称</label>
+            <input type="text" id="mNewCatName" class="form-input" placeholder="如：宠物、健身…" maxlength="8">
+          </div>
+          <div class="form-group">
+            <label class="form-label">选一个 Kitty 图标</label>
+            <div class="icon-pick" id="mNewCatIcons"></div>
+          </div>
+          <div class="form-row">
+            <button type="button" class="btn-secondary" id="mNewCatBack">← 返回记账</button>
+            <button type="button" class="btn-primary" id="mNewCatSave">保存分类</button>
+          </div>
         </div>
       `,
       onConfirm: async () => {
@@ -797,9 +844,15 @@
 
     // post-render 事件
     const modalEl = document.querySelector(".modal");
+    const footerEl = modalEl.querySelector(".modal-footer");
+    let currentTxType = "expense"; // 新增分类跟随当前类型
+
+    // 渲染分类网格
     const renderCats = (type) => {
       const cats = state.categories.filter((c) => c.type === type);
-      document.getElementById("mTxCats").innerHTML = cats.map((c, i) => `
+      const wrap = document.getElementById("mTxCats");
+      if (!wrap) return;
+      wrap.innerHTML = cats.map((c, i) => `
         <button class="cat-cell ${i === 0 ? "active" : ""}" data-cat="${c.id}">
           <img src="${c.icon}" alt="${c.name}"><span>${c.name}</span>
         </button>`).join("");
@@ -809,16 +862,67 @@
         });
       });
     };
+
+    // 渲染 Kitty 图标选择器
+    const renderIconPicker = (selected) => {
+      const box = document.getElementById("mNewCatIcons");
+      box.innerHTML = KITTY_ICONS.map((p) => `
+        <button type="button" class="icon-cell ${p === selected ? "active" : ""}" data-icon="${p}">
+          <img src="${p}" alt="">
+        </button>`).join("");
+      box.querySelectorAll(".icon-cell").forEach((cell) => {
+        cell.addEventListener("click", () => {
+          box.querySelectorAll(".icon-cell").forEach((c) => c.classList.toggle("active", c === cell));
+          box.dataset.sel = cell.dataset.icon;
+        });
+      });
+    };
+
+    // 在「记一笔」与「新增分类」视图间切换
+    const showNewCat = (show) => {
+      document.getElementById("mTxMainWrap").classList.toggle("hidden", show);
+      document.getElementById("mTxNewCatWrap").classList.toggle("hidden", !show);
+      footerEl.style.display = show ? "none" : "";
+      if (show) {
+        document.getElementById("mNewCatName").value = "";
+        const box = document.getElementById("mNewCatIcons");
+        box.dataset.sel = "";
+        renderIconPicker(null);
+      }
+    };
+
+    document.getElementById("mTxNewCatBtn").addEventListener("click", () => showNewCat(true));
+    document.getElementById("mNewCatBack").addEventListener("click", () => showNewCat(false));
+    document.getElementById("mNewCatSave").addEventListener("click", async () => {
+      const name = document.getElementById("mNewCatName").value.trim();
+      const icon = document.getElementById("mNewCatIcons").dataset.sel;
+      if (!name) { toast("填个分类名哦", "error"); return; }
+      if (!icon) { toast("选个图标哦", "error"); return; }
+      try {
+        const cat = await KLDB.addCategory({ name, type: currentTxType, icon });
+        state.categories = await KLDB.allCategories();
+        renderCats(currentTxType);
+        modalEl.querySelectorAll(".cat-cell").forEach((c) => {
+          c.classList.toggle("active", c.dataset.cat === cat.id);
+        });
+        showNewCat(false);
+        toast("分类「" + cat.name + "」创建成功 ✨", "success");
+      } catch (e) {
+        toast("创建失败：" + (e.message || e), "error");
+      }
+    });
+
     renderCats("expense");
 
     modalEl.querySelectorAll(".type-toggle button").forEach((btn) => {
       btn.addEventListener("click", () => {
         modalEl.querySelectorAll(".type-toggle button").forEach((b) => b.classList.toggle("active", b === btn));
-        const type = btn.dataset.type;
-        renderCats(type === "income" ? "income" : "expense");
-        document.getElementById("mTxCatWrap").classList.toggle("hidden", type === "transfer");
-        document.getElementById("mTxAccWrap").classList.toggle("hidden", type === "transfer");
-        document.getElementById("mTxTransferWrap").classList.toggle("hidden", type !== "transfer");
+        const t = btn.dataset.type;
+        currentTxType = t === "transfer" ? "expense" : t;
+        renderCats(t === "income" ? "income" : "expense");
+        document.getElementById("mTxCatWrap").classList.toggle("hidden", t === "transfer");
+        document.getElementById("mTxAccWrap").classList.toggle("hidden", t === "transfer");
+        document.getElementById("mTxTransferWrap").classList.toggle("hidden", t !== "transfer");
       });
     });
   }

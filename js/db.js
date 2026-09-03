@@ -226,6 +226,18 @@
 
   // categories
   async function allCategories() { return this.all(STORE.CAT); }
+  // 用户自建分类：id 用前缀 + 时间戳 + 随机，避免和默认分类冲突
+  async function addCategory({ name, type, icon }) {
+    const id = "cat-c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const record = {
+      id,
+      type: type === "income" ? "income" : "expense",
+      name: String(name || "").trim(),
+      icon: icon || "icons/kitty/misc/3_43_mango.png"
+    };
+    await this.put(STORE.CAT, record);
+    return record;
+  }
 
   // preferences
   async function allPreferences() { return this.all(STORE.PREF); }
@@ -269,7 +281,7 @@
     init, openDB,
     add, put, get, all, del, clear, byIndex,
     listTransactions, addTransaction, updateTransaction, deleteTransaction,
-    allCategories, allPreferences, addPreference, updatePreference, deletePreference,
+    allCategories, addCategory, allPreferences, addPreference, updatePreference, deletePreference,
     allMemos, addMemo, updateMemo, deleteMemo,
     addMessage, recentMessages, clearMessages
   };
