@@ -420,7 +420,7 @@
         if (view === "budget") renderBudget();
       });
     });
-    document.getElementById("btnAddTx").addEventListener("click", openTxModal);
+    document.getElementById("btnAddTx").addEventListener("click", () => openTxModal());
 
     // 月份导航（报表 / 预算各自独立）
     const bindMonthNav = (prevId, nextId, getKey, setKey, rerender) => {
@@ -827,7 +827,7 @@
   // 备忘录
   // ============================================================
   function setupMemo() {
-    document.getElementById("btnAddMemo").addEventListener("click", openMemoModal);
+    document.getElementById("btnAddMemo").addEventListener("click", () => openMemoModal());
     document.getElementById("memoSearch").addEventListener("input", (e) => renderMemo(e.target.value.toLowerCase()));
   }
 
@@ -1173,7 +1173,7 @@
   // AI 设置（模式 / 模型 / API Key / 测试连接）
   // ============================================================
   function setupAISettings() {
-    document.getElementById("btnAI").addEventListener("click", openAISettingsModal);
+    document.getElementById("btnAI").addEventListener("click", () => openAISettingsModal());
   }
 
   function openAISettingsModal() {
