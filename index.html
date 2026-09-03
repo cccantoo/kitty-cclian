@@ -12,8 +12,8 @@
   <link rel="icon" type="image/png" href="./icons/app/icon-192.png">
   <link rel="apple-touch-icon" href="./icons/app/icon-512.png">
   <title>Kitty 账本</title>
-  <link rel="stylesheet" href="./css/style.css">
-  <link rel="stylesheet" href="./css/report.css">
+  <link rel="stylesheet" href="./css/style.css?v=15">
+  <link rel="stylesheet" href="./css/report.css?v=15">
 </head>
 <body>
 
@@ -60,6 +60,15 @@
 
     <!-- 记账页 -->
     <section class="page page-ledger hidden" data-page="ledger">
+      <!-- 账本切换条（多账本） -->
+      <div class="book-bar">
+        <button type="button" class="book-switch" id="btnBookSwitch" aria-label="切换账本">
+          <span class="book-switch-icon" id="bookSwitchIcon">🐱</span>
+          <span class="book-switch-name" id="bookSwitchName">Kitty 账本</span>
+          <span class="book-switch-caret">▾</span>
+        </button>
+      </div>
+
       <div class="ledger-summary">
         <div class="summary-card income">
           <div class="summary-label">本月收入</div>
@@ -163,10 +172,26 @@
       </div>
     </div>
   </div>
-</aside>
+  </aside>
 
-<script src="./js/db.js"></script>
-<script src="./js/ai.js"></script>
-<script src="./js/app.js"></script>
+  <!-- 账本选择底部弹层（多账本：切换 / 新建 / 管理） -->
+  <div class="book-sheet" id="bookSheet" aria-hidden="true">
+    <div class="sheet-mask" data-booksheet-close></div>
+    <div class="book-sheet-panel">
+      <div class="book-sheet-head">
+        <div class="book-sheet-titles">
+          <div class="book-sheet-title">📒 我的账本</div>
+          <div class="book-sheet-sub">点击切换 · 各账本数据相互独立</div>
+        </div>
+        <button class="btn-close" data-booksheet-close aria-label="关闭">✕</button>
+      </div>
+      <div class="book-sheet-body" id="bookSheetBody"></div>
+      <button type="button" class="btn-new-book" id="btnNewBook">＋ 新建账本</button>
+    </div>
+  </div>
+
+<script src="./js/db.js?v=15"></script>
+    <script src="./js/ai.js?v=15"></script>
+    <script src="./js/app.js?v=15"></script>
 </body>
 </html>

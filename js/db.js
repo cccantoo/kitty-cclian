@@ -52,6 +52,93 @@
     { id: "acc-other",    name: "其他",  icon: "🪙", order: 4 }
   ];
 
+  // ============================================================
+  // 多账本（kitty_books 存于 localStorage，账本内嵌独立账户列表）
+  //   账本结构: { id, name, icon, isDefault, createdAt, accounts: [...] }
+  // 兼容迁移：历史无 bookId 的交易一律归属默认账本 book-default；
+  //           旧单账本预算 kitty_budgets → kitty_budgets_<bookId>。
+  // ============================================================
+  const DEFAULT_BOOK_ID = "book-default";
+  const BOOK_KEY = "kitty_books";
+  const ACTIVE_BOOK_KEY = "kitty_active_book";
+
+  function cloneDefaultAccounts() {
+    return DEFAULT_ACCOUNTS.map((a) => Object.assign({}, a));
+  }
+  function budgetsKey(bookId) {
+    return "kitty_budgets_" + (bookId || activeBookId());
+  }
+  function activeBookId() {
+    return localStorage.getItem(ACTIVE_BOOK_KEY) || DEFAULT_BOOK_ID;
+  }
+  function setActiveBookId(id) {
+    localStorage.setItem(ACTIVE_BOOK_KEY, id);
+  }
+  function loadBudgets(bookId) {
+    try {
+      const v = JSON.parse(localStorage.getItem(budgetsKey(bookId)) || "{}");
+      return (v && typeof v === "object") ? v : {};
+    } catch (_) { return {}; }
+  }
+  function saveBudgets(obj, bookId) {
+    localStorage.setItem(budgetsKey(bookId), JSON.stringify(obj || {}));
+  }
+  function removeBudgets(bookId) {
+    localStorage.removeItem(budgetsKey(bookId));
+  }
+  function migrateLegacyBudgets() {
+    try {
+      const legacy = localStorage.getItem("kitty_budgets");
+      if (legacy && legacy !== "{}" && legacy !== "null") {
+        saveBudgets(JSON.parse(legacy), DEFAULT_BOOK_ID);
+      }
+      localStorage.removeItem("kitty_budgets");
+    } catch (_) { /* 旧数据损坏则忽略 */ }
+  }
+  // 保证至少有一个账本；首启把历史 kitty_accounts 迁成默认账本的账户组
+  function ensureBooks() {
+    let books = null;
+    try {
+      const raw = JSON.parse(localStorage.getItem(BOOK_KEY) || "null");
+      if (Array.isArray(raw) && raw.length) books = raw;
+    } catch (_) { books = null; }
+
+    if (!books) {
+      let accs = [];
+      try { accs = JSON.parse(localStorage.getItem("kitty_accounts") || "[]"); } catch (_) { accs = []; }
+      if (!Array.isArray(accs) || accs.length === 0) accs = cloneDefaultAccounts();
+      books = [{
+        id: DEFAULT_BOOK_ID,
+        name: "Kitty 账本",
+        icon: "🐱",
+        isDefault: true,
+        createdAt: Date.now(),
+        accounts: accs
+      }];
+      saveBooks(books);
+    } else {
+      let dirty = false;
+      if (!books.some((b) => b.isDefault)) { books[0].isDefault = true; dirty = true; }
+      for (const b of books) {
+        if (!b.name) { b.name = "未命名账本"; dirty = true; }
+        if (!b.icon) { b.icon = "🐱"; dirty = true; }
+        if (!Array.isArray(b.accounts) || b.accounts.length === 0) { b.accounts = cloneDefaultAccounts(); dirty = true; }
+      }
+      if (dirty) saveBooks(books);
+    }
+    migrateLegacyBudgets();
+    return books;
+  }
+  function books() { return ensureBooks(); }
+  function saveBooks(list) {
+    localStorage.setItem(BOOK_KEY, JSON.stringify(list || []));
+  }
+  function currentBook() {
+    const list = ensureBooks();
+    const id = activeBookId();
+    return list.find((b) => b.id === id) || list.find((b) => b.isDefault) || list[0];
+  }
+
   let _db = null;
 
   // ---------- 打开数据库 ----------
@@ -183,28 +270,34 @@
       await add(STORE.PREF, { key: "system.initialized", value: "1", source: "system", ts: Date.now() });
     }
 
-    // accounts 存在 localStorage（轻量）
+    // accounts 存在 localStorage（轻量；历史兼容，多账本时代账户挂在各账本上）
     if (!localStorage.getItem("kitty_accounts")) {
       localStorage.setItem("kitty_accounts", JSON.stringify(DEFAULT_ACCOUNTS));
     }
+
+    // 账本：保证默认账本存在 + 迁移旧预算（历史数据自动归入默认账本）
+    ensureBooks();
 
     return true;
   }
 
   // ---------- 业务封装 ----------
-  async function listTransactions({ from, to, type, categoryId } = {}) {
+  async function listTransactions({ from, to, type, categoryId, bookId } = {}) {
     const all = await this.all(STORE.TX);
+    const bookOf = (t) => (t && t.bookId) || DEFAULT_BOOK_ID; // 历史记录归默认账本
     return all
-      .filter((t) => (!from || t.ts >= from) && (!to || t.ts <= to)
+      .filter((t) => (bookId === undefined || bookOf(t) === bookId)
+                     && (!from || t.ts >= from) && (!to || t.ts <= to)
                      && (!type || t.type === type)
                      && (!categoryId || t.categoryId === categoryId))
       .sort((a, b) => b.ts - a.ts);
   }
 
-  async function addTransaction({ type, amount, categoryId, accountId, accountFrom, accountTo, note, ts, tags }) {
+  async function addTransaction({ type, amount, categoryId, accountId, accountFrom, accountTo, note, ts, tags, bookId }) {
     const isTransfer = type === "transfer";
     return this.add(STORE.TX, {
       type, amount: Number(amount),
+      bookId: bookId || DEFAULT_BOOK_ID,
       categoryId: isTransfer ? null : categoryId,
       accountId: isTransfer ? null : (accountId || "acc-cash"),
       accountFrom: isTransfer ? (accountFrom || "acc-cash") : null,
@@ -283,6 +376,12 @@
     listTransactions, addTransaction, updateTransaction, deleteTransaction,
     allCategories, addCategory, allPreferences, addPreference, updatePreference, deletePreference,
     allMemos, addMemo, updateMemo, deleteMemo,
-    addMessage, recentMessages, clearMessages
+    addMessage, recentMessages, clearMessages,
+    // 多账本
+    DEFAULT_BOOK_ID,
+    cloneDefaultAccounts,
+    books, saveBooks,
+    activeBookId, setActiveBookId, currentBook,
+    loadBudgets, saveBudgets, removeBudgets
   };
 })(window);

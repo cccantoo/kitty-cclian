@@ -46,10 +46,19 @@
     "icons/kitty/office-life/10_33_straw-hat.png", "icons/kitty/office-life/10_41_note-pad.png", "icons/kitty/office-life/10_42_soap-dispenser.png", "icons/kitty/office-life/10_43_popcorn.png",
     "icons/kitty/sweet-home/9_11_house.png", "icons/kitty/sweet-home/9_12_gashapon.png", "icons/kitty/sweet-home/9_13_hello-pack.png", "icons/kitty/sweet-home/9_21_bubble-tea-pearl.png",
     "icons/kitty/sweet-home/9_22_sushi-box.png", "icons/kitty/sweet-home/9_23_icecream-bowl.png", "icons/kitty/sweet-home/9_31_candy-jar.png", "icons/kitty/sweet-home/9_32_pancake.png",
-    "icons/kitty/sweet-home/9_33_donut.png", "icons/kitty/sweet-home/9_41_chips.png", "icons/kitty/sweet-home/9_42_coffee-cup.png", "icons/kitty/sweet-home/9_43_juice-box.png"
+    "icons/kitty/sweet-home/9_33_donut.png",     "icons/kitty/sweet-home/9_41_chips.png", "icons/kitty/sweet-home/9_42_coffee-cup.png", "icons/kitty/sweet-home/9_43_juice-box.png"
+  ];
+
+  // 账本 emoji 图标（新建/编辑账本时可选）
+  const BOOK_ICONS = [
+    "🐱", "🏠", "✈️", "🏖️", "💼", "🛍️", "🎒", "🍼",
+    "🎓", "💍", "🎁", "🎵", "🎬", "📚", "🏦", "💊",
+    "🍽️", "🚗", "🐶", "⚽"
   ];
 
   const state = {
+    books: [],
+    activeBook: null,
     categories: [],
     prefs: [],
     memos: [],
@@ -81,11 +90,14 @@
   async function boot() {
     try {
       await KLDB.init();
+      state.books = KLDB.books();
+      state.activeBook = KLDB.currentBook();
+      KLDB.setActiveBookId(state.activeBook.id); // 持久化当前账本
       state.categories = await KLDB.allCategories();
       state.prefs = await KLDB.allPreferences();
       state.memos = await KLDB.allMemos();
-      state.txs = await KLDB.listTransactions({});
-      state.accounts = JSON.parse(localStorage.getItem("kitty_accounts") || "[]");
+      state.accounts = Array.isArray(state.activeBook.accounts) ? state.activeBook.accounts : [];
+      state.txs = await KLDB.listTransactions({ bookId: state.activeBook.id });
       state.chatHistory = await KLDB.recentMessages(40);
       console.log("[boot] kitty-ledger ready", state);
 
@@ -102,6 +114,7 @@
       setupMemoryDrawer();
       setupChat();
       setupLedger();
+      setupBooks();
       setupMemo();
       setupAISettings();
       renderAll();
@@ -272,7 +285,7 @@
 
     // 触发其它页刷新（如新建了记账）
     if (reply.wroteTx || (reply.actions && reply.actions.some((a) => a.type === "addTransaction"))) {
-      state.txs = await KLDB.listTransactions({});
+      await reloadActiveTx();
       renderLedger();
       renderCharts();
       renderBudget();
@@ -292,6 +305,8 @@
           history: state.chatHistory,           // 最近 12 轮由 ai.js 截取
           prefs: ctx.prefs,                     // 长期偏好 → system prompt（记忆）
           categories: ctx.categories,
+          bookName: state.activeBook ? state.activeBook.name : "",
+          accounts: state.accounts,
           config: cfg
         });
         // 工具副作用已在 ai.js 里直接落库，这里只刷新 UI
@@ -422,7 +437,7 @@
 
   async function applyAction(act) {
     if (act.type === "addTransaction") {
-      await KLDB.addTransaction(act.data);
+      await KLDB.addTransaction(Object.assign({}, act.data, { bookId: activeBook().id }));
       return;
     }
     if (act.type === "deleteTransaction") {
@@ -516,6 +531,212 @@
         }).join("")}
       </div>`).join("");
     list.innerHTML = html;
+  }
+
+  // ============================================================
+  // 多账本（切换 / 新建 / 编辑 / 删除 / 默认）
+  //  - 账本数据相互独立：交易、报表、预算、账户都跟随当前账本
+  //  - 历史无 bookId 的记录自动属于默认账本 book-default
+  // ============================================================
+  function activeBook() {
+    if (state.activeBook && state.books.some((b) => b.id === state.activeBook.id)) return state.activeBook;
+    state.activeBook = KLDB.currentBook();
+    return state.activeBook;
+  }
+
+  async function reloadActiveTx() {
+    state.txs = await KLDB.listTransactions({ bookId: activeBook().id });
+  }
+
+  function syncActiveBook() {
+    const b = activeBook();
+    state.accounts = Array.isArray(b.accounts) ? b.accounts : [];
+    return b;
+  }
+
+  function renderBookSwitch() {
+    const ic = document.getElementById("bookSwitchIcon");
+    const nm = document.getElementById("bookSwitchName");
+    if (!ic || !nm) return;
+    const b = activeBook();
+    ic.textContent = b.icon || "🐱";
+    nm.textContent = b.name;
+  }
+
+  function setupBooks() {
+    document.getElementById("btnBookSwitch").addEventListener("click", openBookSheet);
+    document.getElementById("btnNewBook").addEventListener("click", () => openBookForm(null));
+    const sheet = document.getElementById("bookSheet");
+    sheet.querySelectorAll("[data-booksheet-close]").forEach((el) => {
+      el.addEventListener("click", closeBookSheet);
+    });
+  }
+
+  function openBookSheet() {
+    state.books = KLDB.books();
+    renderBookSheet();
+    const s = document.getElementById("bookSheet");
+    s.classList.add("open");
+    s.setAttribute("aria-hidden", "false");
+  }
+  function closeBookSheet() {
+    const s = document.getElementById("bookSheet");
+    if (!s) return;
+    s.classList.remove("open");
+    s.setAttribute("aria-hidden", "true");
+  }
+
+  function renderBookSheet() {
+    state.books = KLDB.books();
+    const body = document.getElementById("bookSheetBody");
+    const cur = activeBook();
+    body.innerHTML = (state.books.map((bk) => {
+      const isActive = bk.id === cur.id;
+      return `
+      <div class="book-row ${isActive ? "active" : ""}" data-id="${escapeHtml(bk.id)}">
+        <button type="button" class="book-row-main" data-switch="${escapeHtml(bk.id)}">
+          <span class="book-row-icon">${bk.icon || "🐱"}</span>
+          <span class="book-row-name"><span class="bk-name">${escapeHtml(bk.name)}</span>${bk.isDefault ? '<span class="bk-default-tag">默认</span>' : ""}</span>
+          ${isActive ? '<span class="book-row-check">✓</span>' : ""}
+        </button>
+        <button type="button" class="book-row-more" data-more="${escapeHtml(bk.id)}" aria-label="管理账本">⋯</button>
+      </div>`;
+    }).join("") || '<div class="empty-hint small">还没有账本，先新建一个吧 ✨</div>');
+
+    body.querySelectorAll("[data-switch]").forEach((btn) => {
+      btn.addEventListener("click", () => switchBook(btn.dataset.switch));
+    });
+    body.querySelectorAll("[data-more]").forEach((btn) => {
+      btn.addEventListener("click", (e) => { e.stopPropagation(); openBookActions(btn.dataset.more); });
+    });
+  }
+
+  function openBookActions(id) {
+    const bk = state.books.find((x) => x.id === id);
+    if (!bk) return;
+    const isActive = bk.id === activeBook().id;
+    const canDelete = !bk.isDefault && state.books.length > 1;
+    const body = document.getElementById("bookSheetBody");
+    body.innerHTML = `
+      <button type="button" class="book-act-back" id="bookActBack">‹ 返回账本列表</button>
+      <div class="book-row ${isActive ? "active" : ""}" style="pointer-events:none">
+        <span class="book-row-icon">${bk.icon || "🐱"}</span>
+        <span class="book-row-name"><span class="bk-name">${escapeHtml(bk.name)}</span>${bk.isDefault ? '<span class="bk-default-tag">默认</span>' : ""}</span>
+      </div>
+      <div class="book-act-list">
+        ${!bk.isDefault ? '<button type="button" class="book-act-item" data-act="default">⭐ 设为默认账本</button>' : ""}
+        <button type="button" class="book-act-item" data-act="rename">✏️ 重命名 / 换图标</button>
+        ${canDelete
+          ? '<button type="button" class="book-act-item danger" data-act="delete">🗑️ 删除账本（含该账本记录）</button>'
+          : '<div class="book-act-item danger" style="opacity:.45">🗑️ 默认账本不可删除</div>'}
+      </div>`;
+    document.getElementById("bookActBack").addEventListener("click", renderBookSheet);
+    const def = body.querySelector('[data-act="default"]');
+    if (def) def.addEventListener("click", () => setDefaultBook(bk.id));
+    body.querySelector('[data-act="rename"]').addEventListener("click", () => openBookForm(bk.id));
+    const del = body.querySelector('[data-act="delete"]');
+    if (del) del.addEventListener("click", () => deleteBook(bk.id));
+  }
+
+  async function switchBook(id) {
+    const nb = state.books.find((b) => b.id === id);
+    if (!nb) { toast("账本不存在", "error"); return; }
+    state.activeBook = nb;
+    KLDB.setActiveBookId(id);
+    state.accounts = Array.isArray(nb.accounts) ? nb.accounts : [];
+    state.txs = await KLDB.listTransactions({ bookId: id });
+    renderBookSwitch();
+    renderLedger();
+    renderCharts();
+    renderBudget();
+    closeBookSheet();
+    toast("已切换到「" + nb.name + "」✨", "success");
+  }
+
+  function openBookForm(bookId) {
+    const isEdit = !!bookId;
+    const bk = isEdit ? state.books.find((x) => x.id === bookId) : null;
+    const curIcon = (bk && bk.icon) || "🐱";
+    showModal({
+      title: isEdit ? "编辑账本 ✏️" : "新建账本 🌸",
+      bodyHtml: `
+        <div class="form-group">
+          <label class="form-label">账本名称</label>
+          <input type="text" id="bkName" class="form-input" maxlength="12" placeholder="如：日常账本、旅行账本…" value="${escapeHtml((bk && bk.name) || "")}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">选个图标</label>
+          <div class="icon-pick-emoji" id="bkIcons">
+            ${BOOK_ICONS.map((ic) => `<button type="button" class="icon-cell ${ic === curIcon ? "active" : ""}" data-icon="${ic}">${ic}</button>`).join("")}
+          </div>
+        </div>`,
+      onConfirm: async () => {
+        const name = String(document.getElementById("bkName").value || "").trim();
+        const sel = document.querySelector("#bkIcons .icon-cell.active");
+        const icon = (sel && sel.dataset.icon) || "🐱";
+        if (!name) { toast("填个账本名称哦", "error"); return false; }
+        state.books = KLDB.books();
+        if (!isEdit && state.books.some((x) => x.name === name)) { toast("已有同名账本，换个名字吧", "error"); return false; }
+        if (isEdit) {
+          const target = state.books.find((x) => x.id === bookId);
+          if (!target) return false;
+          target.name = name;
+          target.icon = icon;
+          KLDB.saveBooks(state.books);
+          if (target.id === activeBook().id) { state.activeBook = target; syncActiveBook(); renderBookSwitch(); }
+          toast("账本已更新 ✨", "success");
+          renderBookSheet();
+        } else {
+          const nb = {
+            id: "book-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+            name, icon, isDefault: false, createdAt: Date.now(),
+            accounts: KLDB.cloneDefaultAccounts()
+          };
+          state.books.push(nb);
+          KLDB.saveBooks(state.books);
+          await switchBook(nb.id);
+          toast("新建账本「" + nb.name + "」✨", "success");
+        }
+        return true;
+      }
+    });
+    const box = document.getElementById("bkIcons");
+    box.addEventListener("click", (e) => {
+      const cell = e.target.closest(".icon-cell");
+      if (!cell) return;
+      box.querySelectorAll(".icon-cell").forEach((c) => c.classList.toggle("active", c === cell));
+    });
+  }
+
+  function setDefaultBook(id) {
+    state.books = KLDB.books();
+    const bk = state.books.find((x) => x.id === id);
+    if (!bk || bk.isDefault) { renderBookSheet(); return; }
+    for (const b of state.books) b.isDefault = (b.id === id);
+    KLDB.saveBooks(state.books);
+    toast("「" + bk.name + "」已成为默认账本 ✨", "success");
+    renderBookSheet();
+  }
+
+  async function deleteBook(id) {
+    const bk = state.books.find((x) => x.id === id);
+    if (!bk) { renderBookSheet(); return; }
+    if (bk.isDefault) { toast("默认账本不能删除哦", "error"); renderBookSheet(); return; }
+    if (state.books.length <= 1) { toast("至少要保留一个账本", "error"); renderBookSheet(); return; }
+    const list = await KLDB.listTransactions({ bookId: id });
+    if (!confirm(`删除账本「${bk.name}」？\n该账本下的 ${list.length} 笔记录将一并删除，无法恢复。`)) { renderBookSheet(); return; }
+    for (const t of list) await KLDB.deleteTransaction(t.id);
+    KLDB.removeBudgets(id);
+    state.books = state.books.filter((x) => x.id !== id);
+    KLDB.saveBooks(state.books);
+    if (state.activeBook && state.activeBook.id === id) {
+      await switchBook(KLDB.currentBook().id); // 内部刷新视图并关闭弹层
+    } else {
+      closeBookSheet();
+      syncActiveBook();
+      renderBookSwitch();
+    }
+    toast("账本「" + bk.name + "」已删除", "success");
   }
 
   // ============================================================
@@ -644,12 +865,9 @@
       ${heatmap}`;
   }
 
-  // ---------- 预算 ----------
-  function loadBudgets() {
-    try { return JSON.parse(localStorage.getItem("kitty_budgets") || "{}") || {}; }
-    catch (_) { return {}; }
-  }
-  function saveBudgets(b) { localStorage.setItem("kitty_budgets", JSON.stringify(b)); }
+  // ---------- 预算（跟随当前账本） ----------
+  function loadBudgets() { return KLDB.loadBudgets(activeBook().id); }
+  function saveBudgets(b) { KLDB.saveBudgets(b, activeBook().id); }
 
   function renderBudget() {
     const body = document.getElementById("budgetBody");
@@ -767,7 +985,7 @@
       bodyHtml: `
         <div id="mTxMainWrap">
           <div class="type-toggle">
-            <button class="active expense" data-type="expense">支出</button>
+            <button class="active" data-type="expense">支出</button>
             <button data-type="income">收入</button>
             <button data-type="transfer">转账</button>
           </div>
@@ -822,7 +1040,7 @@
           const from = document.getElementById("mTxAccFrom").value;
           const to = document.getElementById("mTxAccTo").value;
           if (from === to) { toast("转出和转入不能是同一个账户哦", "error"); return false; }
-          await KLDB.addTransaction({ type: "transfer", amount, accountFrom: from, accountTo: to, note });
+          await KLDB.addTransaction({ type: "transfer", amount, accountFrom: from, accountTo: to, note, bookId: activeBook().id });
         } else {
           const catActive = document.querySelector("#mTxCats .cat-cell.active");
           if (!catActive) { toast("选个分类", "error"); return false; }
@@ -830,10 +1048,11 @@
             type, amount,
             categoryId: catActive.dataset.cat,
             accountId: document.getElementById("mTxAcc").value,
-            note
+            note,
+            bookId: activeBook().id
           });
         }
-        state.txs = await KLDB.listTransactions({});
+        await reloadActiveTx();
         renderLedger();
         renderCharts();
         renderBudget();
@@ -1122,14 +1341,20 @@
   // 数据管理
   // ============================================================
   async function exportJSON() {
+    // 导出全部账本（含各自账户与预算）+ 全量交易
     const data = {
       exportedAt: new Date().toISOString(),
-      version: 1,
-      transactions: state.txs,
+      version: 2,
+      books: state.books.map((b) => ({
+        id: b.id, name: b.name, icon: b.icon || "🐱",
+        isDefault: !!b.isDefault, createdAt: b.createdAt,
+        accounts: b.accounts || [],
+        budgets: KLDB.loadBudgets(b.id)
+      })),
+      transactions: await KLDB.listTransactions({}),
       memos: state.memos,
       preferences: state.prefs.filter((p) => !p.key.startsWith("system.")),
-      categories: state.categories,
-      budgets: loadBudgets()
+      categories: state.categories
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -1150,21 +1375,52 @@
       const text = await file.text();
       try {
         const data = JSON.parse(text);
-        // ⚠️ v1 仅支持「追加合并」，不做去重
-        if (!confirm(`将导入 ${data.transactions?.length || 0} 笔交易、${data.memos?.length || 0} 条备忘。继续？`)) return;
+        const txCount = Array.isArray(data.transactions) ? data.transactions.length : 0;
+        if (!confirm(`将导入 ${data.books?.length || 0} 个账本、${txCount} 笔交易、${data.memos?.length || 0} 条备忘（合并，不去重）。继续？`)) return;
+
+        // 1) 账本（含账户）+ 各账本预算
+        state.books = KLDB.books();
+        if (Array.isArray(data.books) && data.books.length) {
+          for (const b of data.books) {
+            const exist = state.books.find((x) => x.id === b.id);
+            if (exist) {
+              exist.name = b.name || exist.name;
+              exist.icon = b.icon || exist.icon;
+              if (Array.isArray(b.accounts) && b.accounts.length) exist.accounts = b.accounts;
+            } else {
+              state.books.push({
+                id: b.id, name: b.name || "导入账本", icon: b.icon || "🐱",
+                isDefault: false, createdAt: b.createdAt || Date.now(),
+                accounts: Array.isArray(b.accounts) && b.accounts.length ? b.accounts : KLDB.cloneDefaultAccounts()
+              });
+            }
+            if (b.budgets && typeof b.budgets === "object") KLDB.saveBudgets(b.budgets, b.id);
+          }
+          if (!state.books.some((x) => x.isDefault)) state.books[0].isDefault = true;
+          KLDB.saveBooks(state.books);
+        } else if (data.budgets && typeof data.budgets === "object") {
+          // v1 备份：旧预算并入默认账本
+          KLDB.saveBudgets(data.budgets, KLDB.DEFAULT_BOOK_ID);
+        }
+
+        // 2) 交易：v1 备份无 bookId → 落默认账本；缺失账本的交易也归默认账本
+        const validIds = new Set(state.books.map((b) => b.id));
         if (Array.isArray(data.transactions)) for (const t of data.transactions) {
-          const { id, ...rest } = t;
-          await KLDB.addTransaction(rest);
+          const { id, bookId, ...rest } = t;
+          const targetBook = (bookId && validIds.has(bookId)) ? bookId : KLDB.DEFAULT_BOOK_ID;
+          await KLDB.addTransaction(Object.assign({}, rest, { bookId: targetBook }));
         }
         if (Array.isArray(data.memos)) for (const m of data.memos) await KLDB.addMemo(m);
         if (Array.isArray(data.preferences)) for (const p of data.preferences) {
           await KLDB.addPreference({ key: p.key, value: p.value, source: p.source || "import" });
         }
-        if (data.budgets && typeof data.budgets === "object") saveBudgets(data.budgets);
-        state.txs = await KLDB.listTransactions({});
+        state.books = KLDB.books();
+        await reloadActiveTx();
         state.memos = await KLDB.allMemos();
         state.prefs = await KLDB.allPreferences();
+        syncActiveBook();
         renderAll();
+        renderBookSwitch();
         toast("已导入 ✨", "success");
       } catch (err) {
         toast("导入失败：" + err.message, "error");
@@ -1173,18 +1429,25 @@
     input.click();
   }
   async function clearAllData() {
-    if (!confirm("⚠️ 这会清空所有记账、备忘录、偏好。确定吗？")) return;
+    if (!confirm("⚠️ 这会清空所有记账、备忘录、偏好、账本与预算。确定吗？")) return;
     await KLDB.clear(KLDB.STORE.TX);
     await KLDB.clear(KLDB.STORE.MEMO);
     await KLDB.clear(KLDB.STORE.PREF);
-    // 保留 system.initialized 但删了所有用户偏好，可以重建
-    state.txs = [];
-    state.memos = [];
-    state.prefs = [];
-    // 重新 init 基础
+    // 移除账本 / 活动账本 / 全部预算 / 旧账户存储 → 重新 init 出全新默认账本
+    for (const key of Object.keys(localStorage)) {
+      if (key === "kitty_books" || key === "kitty_active_book" || key === "kitty_accounts" || key.startsWith("kitty_budgets")) {
+        localStorage.removeItem(key);
+      }
+    }
     await KLDB.init();
+    state.books = KLDB.books();
+    state.activeBook = KLDB.currentBook();
+    KLDB.setActiveBookId(state.activeBook.id);
     state.prefs = await KLDB.allPreferences();
+    await reloadActiveTx();
+    syncActiveBook();
     renderAll();
+    renderBookSwitch();
     toast("已清空", "success");
   }
 
@@ -1192,6 +1455,7 @@
   // 渲染助手
   // ============================================================
   function renderAll() {
+    renderBookSwitch();
     renderLedger();
     renderCharts();
     renderBudget();

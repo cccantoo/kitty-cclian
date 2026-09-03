@@ -24,10 +24,13 @@
   // ============================================================
   // System Prompt（记忆注入点）
   // ============================================================
-  function buildSystemPrompt({ prefs, categories }) {
+  function buildSystemPrompt({ prefs, categories, bookName, accounts }) {
     const dateStr = new Date().toLocaleString("zh-CN", { hour12: false });
     const expCats = categories.filter((c) => c.type === "expense").map((c) => `${c.name}(${c.id})`).join("、");
     const incCats = categories.filter((c) => c.type === "income").map((c) => `${c.name}(${c.id})`).join("、");
+    const accText = (accounts && accounts.length)
+      ? accounts.map((a) => `${a.icon || ""}${a.name}(${a.id})`).join("、")
+      : "现金(acc-cash)、微信(acc-wechat)、支付宝(acc-alipay)、银行卡(acc-card)、其他(acc-other)";
     const userPrefs = (prefs || []).filter((p) => p.key && !String(p.key).startsWith("system."));
     const prefLines = userPrefs.length
       ? userPrefs.map((p) => `- ${p.key}：${p.value}`).join("\n")
@@ -37,10 +40,11 @@
       "你是「Kitty」，一个粉色可爱风格的记账助手。语气温柔活泼、简短，可以适度用 emoji。",
       "",
       `【当前时间】${dateStr}`,
+      `【当前账本】${bookName || "Kitty 账本"}（记账、查账、预算都只作用于当前账本）`,
       "",
       `【可用支出分类】${expCats}`,
       `【可用收入分类】${incCats}`,
-      "【账户】现金(acc-cash)、微信(acc-wechat)、支付宝(acc-alipay)、银行卡(acc-card)、其他(acc-other)",
+      `【账户】${accText}`,
       "",
       "【用户偏好记忆（长期）】",
       prefLines,
@@ -195,7 +199,8 @@
           categoryId: cat.id,
           accountId: args.account || "acc-cash",
           note: args.note || "",
-          ts: Date.now()
+          ts: Date.now(),
+          bookId: KLDB.activeBookId()
         });
         out.wroteTx = true;
         out.cards.push({
@@ -208,7 +213,7 @@
 
       case "query_transactions": {
         const { from, to } = monthRange(args.month);
-        const list = await KLDB.listTransactions({ from, to, type: args.type, categoryId: args.categoryId });
+        const list = await KLDB.listTransactions({ from, to, type: args.type, categoryId: args.categoryId, bookId: KLDB.activeBookId() });
         const limit = Number(args.limit) || 20;
         const rows = list.slice(0, limit).map((t) => ({
           date: new Date(t.ts).toLocaleDateString("zh-CN"),
@@ -222,7 +227,7 @@
 
       case "get_monthly_stats": {
         const { from, to, label } = monthRange(args.month);
-        const list = await KLDB.listTransactions({ from, to });
+        const list = await KLDB.listTransactions({ from, to, bookId: KLDB.activeBookId() });
         let income = 0, expense = 0;
         const byCat = {};
         for (const t of list) {
@@ -256,9 +261,7 @@
 
       case "set_budget": {
         const { label } = monthRange(args.month);
-        let store = {};
-        try { store = JSON.parse(localStorage.getItem("kitty_budgets") || "{}") || {}; }
-        catch (_) { store = {}; }
+        let store = KLDB.loadBudgets();
         const cur = store[label] || { total: 0, cats: {} };
         cur.cats = cur.cats || {};
 
@@ -280,7 +283,7 @@
         if (changed.length === 0) return { ok: false, error: "没有可设置的字段（total / categoryBudgets）" };
 
         store[label] = cur;
-        localStorage.setItem("kitty_budgets", JSON.stringify(store));
+        KLDB.saveBudgets(store);
         out.wroteBudget = true;
         out.cards.push({
           icon: "🎀",
@@ -292,13 +295,11 @@
 
       case "get_budget": {
         const { from, to, label } = monthRange(args.month);
-        let store = {};
-        try { store = JSON.parse(localStorage.getItem("kitty_budgets") || "{}") || {}; }
-        catch (_) { store = {}; }
+        let store = KLDB.loadBudgets();
         const budget = store[label] || { total: 0, cats: {} };
         budget.cats = budget.cats || {};
 
-        const list = await KLDB.listTransactions({ from, to });
+        const list = await KLDB.listTransactions({ from, to, bookId: KLDB.activeBookId() });
         let spent = 0;
         const spentByCat = {};
         for (const t of list) {
@@ -400,12 +401,12 @@
   // ============================================================
   // 主入口：带工具调用循环的对话
   // ============================================================
-  async function chat({ userText, history, prefs, categories, config }) {
+  async function chat({ userText, history, prefs, categories, bookName, accounts, config }) {
     const out = { text: "", cards: [], prefsAdded: [], wroteTx: false, wroteBudget: false };
     const ctx = { categories: categories || [] };
 
     const messages = [
-      { role: "system", content: buildSystemPrompt({ prefs, categories: ctx.categories }) },
+      { role: "system", content: buildSystemPrompt({ prefs, categories: ctx.categories, bookName, accounts }) },
       ...(history || [])
         .filter((m) => m && (m.role === "user" || m.role === "assistant") && m.content)
         .slice(-200)  // 最近 100 轮（1 轮 = user + assistant 各 1 条）
