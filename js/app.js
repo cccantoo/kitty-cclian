@@ -311,6 +311,7 @@
       renderCharts();
       renderBudget();
       renderMemo();
+      cloudTouch();
     }
   }
 
@@ -335,6 +336,7 @@
           state.prefs = await KLDB.allPreferences();
           renderPrefsCount();
           renderPrefNotice(r.text, r.prefsAdded);
+          cloudTouch();
         }
         // 预算被 AI 改过也要触发列表/报表/预算刷新（复用 wroteTx 通道）
         return { text: r.text, cards: r.cards, actions: [], preferencesAdded: [], wroteTx: !!(r.wroteTx || r.wroteBudget) };
@@ -707,6 +709,7 @@
           if (target.id === activeBook().id) { state.activeBook = target; syncActiveBook(); renderBookSwitch(); }
           toast("账本已更新 ✨", "success");
           renderBookSheet();
+          cloudTouch();
         } else {
           const nb = {
             id: "book-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
@@ -717,6 +720,7 @@
           KLDB.saveBooks(state.books);
           await switchBook(nb.id);
           toast("新建账本「" + nb.name + "」✨", "success");
+          cloudTouch();
         }
         return true;
       }
@@ -737,6 +741,7 @@
     KLDB.saveBooks(state.books);
     toast("「" + bk.name + "」已成为默认账本 ✨", "success");
     renderBookSheet();
+    cloudTouch();
   }
 
   async function deleteBook(id) {
@@ -746,8 +751,29 @@
     if (state.books.length <= 1) { toast("至少要保留一个账本", "error"); renderBookSheet(); return; }
     const list = await KLDB.listTransactions({ bookId: id });
     if (!confirm(`删除账本「${bk.name}」？\n该账本下的 ${list.length} 笔记录将一并删除，无法恢复。`)) { renderBookSheet(); return; }
+    // 云同步墓碑：账本本体 + 账户 + 预算（交易删除在循环里自动记墓碑）
+    KLDB.addTomb("books", bk.id, {
+      id: bk.id, name: bk.name || "账本", icon: bk.icon || "🐱",
+      is_default: bk.isDefault ? 1 : 0, created_at: bk.createdAt || Date.now()
+    });
+    for (const a of (bk.accounts || [])) {
+      KLDB.addTomb("accounts", bk.id + ":" + a.id, {
+        id: a.id, book_id: bk.id, name: a.name || "", icon: a.icon || "💵",
+        order_no: a.order != null ? a.order : 0, created_at: Date.now()
+      });
+    }
+    const bd = KLDB.loadBudgets(bk.id);
+    for (const month of Object.keys(bd || {})) {
+      KLDB.addTomb("budgets", bk.id + "|" + month, {
+        book_id: bk.id, month,
+        total_cents: Math.round((Number(bd[month] && bd[month].total) || 0) * 100),
+        cats_json: JSON.stringify((bd[month] && bd[month].cats) || {}),
+        created_at: Date.now()
+      });
+    }
     for (const t of list) await KLDB.deleteTransaction(t.id);
     KLDB.removeBudgets(id);
+    cloudTouch();
     state.books = state.books.filter((x) => x.id !== id);
     KLDB.saveBooks(state.books);
     if (state.activeBook && state.activeBook.id === id) {
@@ -1078,6 +1104,7 @@
         renderCharts();
         renderBudget();
         toast(type === "transfer" ? "转账完成 ✨" : "已记录 ✨", "success");
+        cloudTouch();
         return true;
       }
     });
@@ -1444,6 +1471,7 @@
     await KLDB.updateMemo(m.id, { content: lines.join("\n"), noTouch: true });
     await refreshMemoStore();
     renderMemo();
+    cloudTouch();
   }
 
   async function runMemoAction(id, act) {
@@ -1473,6 +1501,7 @@
     }
     await refreshMemoStore();
     renderMemo();
+    cloudTouch();
   }
 
   async function clearMemoTrash() {
@@ -1483,6 +1512,7 @@
     await refreshMemoStore();
     renderMemo();
     toast("回收站已清空", "success");
+    cloudTouch();
   }
 
   // ---------- 新建 / 编辑：全屏大编辑区（对标 Apple 备忘录 / Keep） ----------
@@ -1585,6 +1615,7 @@
         await refreshMemoStore();
         renderMemo();
         toast(wasNew ? "已新建 ✨" : "已保存 ✨", "success");
+        cloudTouch();
       } catch (e) {
         toast("保存失败：" + ((e && e.message) || e), "error");
       }
@@ -1696,6 +1727,7 @@
         renderPrefs();
         renderPrefsCount();
         toast("已删除", "success");
+        cloudTouch();
       });
     });
   }
@@ -1738,6 +1770,7 @@
         renderPrefs();
         renderPrefsCount();
         toast("已添加 ✨", "success");
+        cloudTouch();
         return true;
       }
     });
@@ -1766,6 +1799,7 @@
         state.prefs = await KLDB.allPreferences();
         renderPrefs();
         renderPrefsCount();
+        cloudTouch();
         return true;
       }
     });
@@ -2261,6 +2295,10 @@
     // 墓碑合并：备忘录 / 偏好 的物理删除
     R.memos = R.memos.concat(KLDB.listTombs("memos", TOMB_KEEP_MS));
     R.preferences = R.preferences.concat(KLDB.listTombs("preferences", TOMB_KEEP_MS));
+    R.transactions = R.transactions.concat(KLDB.listTombs("transactions", TOMB_KEEP_MS));
+    R.books = R.books.concat(KLDB.listTombs("books", TOMB_KEEP_MS));
+    R.accounts = R.accounts.concat(KLDB.listTombs("accounts", TOMB_KEEP_MS));
+    R.budgets = R.budgets.concat(KLDB.listTombs("budgets", TOMB_KEEP_MS));
     return R;
   }
 
@@ -2273,6 +2311,16 @@
   function scheduleAutoSync(delayMs) {
     if (!loadSession()) return;
     setTimeout(() => { if (!_syncRunning) runSyncDown({ silent: true }); }, delayMs || 800);
+  }
+
+  // 数据变更后防抖自动上传（静默；12 秒内多次改动合并为一次）
+  let _cloudTimer = null;
+  function cloudTouch() {
+    if (!loadSession()) return;
+    clearTimeout(_cloudTimer);
+    _cloudTimer = setTimeout(() => {
+      if (!_syncRunning) runSyncUp({ silent: true });
+    }, 12000);
   }
 
   async function runSyncUp(opts = {}) {
@@ -2403,17 +2451,30 @@
         return true;
       }
       if (table === "categories") {
-        if (!state.categories.some((c) => c.id === row.id)) {
-          if (row.deleted_at) return false;
+        const exist = state.categories.find((c) => c.id === row.id);
+        if (row.deleted_at) {
+          if (exist) { await KLDB.del(KLDB.STORE.CAT, row.id); return true; }
+          return false;
+        }
+        if (!exist) {
           await KLDB.put(KLDB.STORE.CAT, { id: row.id, type: row.type === "income" ? "income" : "expense", name: row.name || "", icon: row.icon || "" });
           return true;
         }
         return false;
       }
       if (table === "books") {
-        if (row.deleted_at) return false; // 账本删除传播留待下批
         const books = KLDB.books();
-        if (!books.some((b) => b.id === row.id)) {
+        const exist = books.find((b) => b.id === row.id);
+        if (row.deleted_at) {
+          if (exist && !exist.isDefault) {
+            books.splice(books.indexOf(exist), 1);
+            KLDB.saveBooks(books);
+            KLDB.removeBudgets(row.id);
+            return true;
+          }
+          return false;
+        }
+        if (!exist) {
           books.push({ id: row.id, name: row.name || "云端账本", icon: row.icon || "🐱", isDefault: !!row.is_default, createdAt: Number(row.created_at) || Date.now(), accounts: [] });
           KLDB.saveBooks(books);
           return true;
@@ -2421,12 +2482,15 @@
         return false;
       }
       if (table === "accounts") {
-        if (row.deleted_at) return false;
         const books = KLDB.books();
         const target = books.find((b) => b.id === row.book_id);
         if (!target) return false;
         const accs = Array.isArray(target.accounts) ? target.accounts : (target.accounts = []);
         const ex = accs.find((a) => a.id === row.id);
+        if (row.deleted_at) {
+          if (ex) { accs.splice(accs.indexOf(ex), 1); KLDB.saveBooks(books); return true; }
+          return false;
+        }
         if (!ex) {
           accs.push({ id: row.id, name: row.name || "", icon: row.icon || "💵", order: row.order_no != null ? row.order_no : 0 });
           KLDB.saveBooks(books);
@@ -2436,10 +2500,13 @@
         return false;
       }
       if (table === "budgets") {
-        if (row.deleted_at) return false;
         const books = KLDB.books();
         if (!books.some((b) => b.id === row.book_id)) return false;
         const bd = KLDB.loadBudgets(row.book_id);
+        if (row.deleted_at) {
+          if (bd[row.month]) { delete bd[row.month]; KLDB.saveBudgets(bd, row.book_id); return true; }
+          return false;
+        }
         if (!bd[row.month]) {
           bd[row.month] = { total: Number(row.total_cents || 0) / 100, cats: safeJson(row.cats_json, {}) };
           KLDB.saveBudgets(bd, row.book_id);

@@ -313,7 +313,21 @@
     const t = await this.get(STORE.TX, id);
     return this.put(STORE.TX, { ...t, ...patch, id });
   }
+  // 删除交易前先记云墓碑（供云同步把删除传播到其它设备）
   async function deleteTransaction(id) {
+    const t = await this.get(STORE.TX, id);
+    if (t) {
+      const now = Date.now();
+      putTomb("transactions", String(id), {
+        id: t.id, book_id: t.bookId || DEFAULT_BOOK_ID, type: t.type || "expense",
+        amount_cents: Math.round((Number(t.amount) || 0) * 100),
+        category_id: t.categoryId || null, account_id: t.accountId || null,
+        account_from: t.accountFrom || null, account_to: t.accountTo || null,
+        note: t.note || "", tags_json: JSON.stringify(t.tags || []),
+        ts: t.ts || t.createdAt || now,
+        created_at: t.createdAt || now, updated_at: now, deleted_at: now
+      });
+    }
     return this.del(STORE.TX, id);
   }
 
@@ -363,6 +377,10 @@
       }
       return out;
     } catch (_) { return []; }
+  }
+  // 应用层（如删账本）也可主动记墓碑：行需为服务端行格式并带 updated_at/deleted_at
+  function addTomb(table, key, row) {
+    putTomb(table, key, Object.assign({}, row, { updated_at: Date.now(), deleted_at: Date.now() }));
   }
   async function deletePreference(id) {
     const p = await this.get(STORE.PREF, id);
@@ -445,6 +463,6 @@
     books, saveBooks,
     activeBookId, setActiveBookId, currentBook,
     loadBudgets, saveBudgets, removeBudgets,
-    listTombs
+    listTombs, addTomb
   };
 })(window);
