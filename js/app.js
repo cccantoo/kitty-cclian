@@ -2188,14 +2188,261 @@
     const actions = box.querySelector(".acct-actions");
     const s = loadSession();
     if (s && s.token && s.user) {
-      stateEl.innerHTML = "已登录：<b>" + escapeHtml(s.user.username || "") + "</b><br>数据同步功能将在下阶段开放";
-      actions.innerHTML = '<button class="btn-acct ghost" id="btnAuthLogout">退出登录</button>';
+      const sync = loadSyncState();
+      stateEl.innerHTML = "已登录：<b>" + escapeHtml(s.user.username || "") + "</b>" +
+        (sync && sync.lastAt ? '<br>上次同步 ' + new Date(sync.lastAt).toLocaleTimeString("zh-CN", { hour12: false }) : "");
+      actions.innerHTML = `
+        <button class="btn-acct" id="btnSyncUp">📤 上传云端</button>
+        <button class="btn-acct ghost" id="btnSyncDown">📥 拉取合并</button>
+        <button class="btn-acct ghost" id="btnAuthLogout" title="退出登录">退出</button>`;
+      document.getElementById("btnSyncUp").addEventListener("click", () => runSyncUp());
+      document.getElementById("btnSyncDown").addEventListener("click", () => runSyncDown());
       document.getElementById("btnAuthLogout").addEventListener("click", doLogout);
     } else {
       stateEl.textContent = "未登录 · 数据仅保存在本机";
       actions.innerHTML = '<button class="btn-acct" id="btnAuthOpen">登录 / 注册</button>';
       document.getElementById("btnAuthOpen").addEventListener("click", openAuthScreen);
     }
+  }
+
+  // ============================================================
+  // Kitty 云同步（M4 v1）—— 手动「上传 / 拉取合并」
+  //  - push：全量上行（服务端按 updated_at 后写覆盖），服务端较新的行回写本地
+  //  - pull：服务端全量按表拉回，只落地「本地缺失」或「服务端更新的行」
+  //  - 删除传播（v1 范围）：备忘录彻底删除、偏好删除（经本地墓碑 kitty_tombs_*）
+  //  - 局限（下批处理）：账本/账户/交易的本地物理删除暂不自动上行
+  // ============================================================
+  const SYNC_STATE_KEY = "kitty_sync_state";
+  const TOMB_KEEP_MS = 45 * 24 * 3600 * 1000; // 本地墓碑保留 45 天
+
+  function loadSyncState() {
+    try { return JSON.parse(localStorage.getItem(SYNC_STATE_KEY) || "null"); } catch (_) { return null; }
+  }
+  function saveSyncState(st) { localStorage.setItem(SYNC_STATE_KEY, JSON.stringify(st)); }
+  function setSyncBusy(on) {
+    document.querySelectorAll("#acctBox .btn-acct").forEach((b) => { b.disabled = on; });
+  }
+
+  // 账本等文本主键的本地记录没有 updated_at：拉取只补缺失，不覆盖本机已存在内容
+  const REMOTE_TABLES = ["books", "accounts", "categories", "transactions", "memos", "budgets", "preferences"];
+
+  function yuanToCents(v) { return Math.round((Number(v) || 0) * 100); }
+  function safeJson(s, def) { try { const v = JSON.parse(s); return v === null || v === undefined ? def : v; } catch (_) { return def; } }
+
+  // ---- 装配本地全量行（含墓碑合并）----
+  async function gatherCloudRows() {
+    const now = Date.now();
+    const R = { books: [], accounts: [], categories: [], transactions: [], memos: [], preferences: [], budgets: [] };
+    const books = KLDB.books();
+    for (const b of books) {
+      R.books.push({ id: b.id, name: b.name || "账本", icon: b.icon || "🐱", is_default: b.isDefault ? 1 : 0, created_at: b.createdAt || now, updated_at: now, deleted_at: null });
+      for (const a of (b.accounts || [])) {
+        R.accounts.push({ id: a.id, book_id: b.id, name: a.name || "", icon: a.icon || "💵", order_no: a.order != null ? a.order : 0, created_at: now, updated_at: now, deleted_at: null });
+      }
+      const bd = KLDB.loadBudgets(b.id) || {};
+      for (const month of Object.keys(bd)) {
+        R.budgets.push({ book_id: b.id, month, total_cents: yuanToCents(bd[month] && bd[month].total), cats_json: JSON.stringify((bd[month] && bd[month].cats) || {}), updated_at: now, deleted_at: null });
+      }
+    }
+    for (const c of state.categories || []) {
+      R.categories.push({ id: c.id, type: c.type === "income" ? "income" : "expense", name: c.name || "", icon: c.icon || "", created_at: now, updated_at: now, deleted_at: null });
+    }
+    for (const t of await KLDB.listTransactions({})) {
+      R.transactions.push({ id: t.id, book_id: t.bookId || KLDB.DEFAULT_BOOK_ID, type: t.type || "expense", amount_cents: yuanToCents(t.amount), category_id: t.categoryId || null, account_id: t.accountId || null, account_from: t.accountFrom || null, account_to: t.accountTo || null, note: t.note || "", tags_json: JSON.stringify(t.tags || []), ts: t.ts || t.createdAt || now, created_at: t.createdAt || now, updated_at: t.createdAt || now, deleted_at: null });
+    }
+    for (const m of await KLDB.allMemos()) {
+      R.memos.push({ id: m.id, title: m.title || "", content: m.content || "", color: m.color || "pink", tags_json: JSON.stringify(m.tags || []), pinned: m.pinned ? 1 : 0, archived: m.archived ? 1 : 0, trashed: m.trashed ? 1 : 0, trashed_at: m.trashedAt || null, created_at: m.createdAt || now, updated_at: m.updatedAt || m.createdAt || now, deleted_at: null });
+    }
+    for (const p of state.prefs || []) {
+      if (!p.key || String(p.key).startsWith("system.")) continue;
+      R.preferences.push({ pkey: p.key, pvalue: String(p.value ?? ""), source: p.source || "manual", created_at: p.ts || now, updated_at: p.ts || now, deleted_at: null });
+    }
+    // 墓碑合并：备忘录 / 偏好 的物理删除
+    R.memos = R.memos.concat(KLDB.listTombs("memos", TOMB_KEEP_MS));
+    R.preferences = R.preferences.concat(KLDB.listTombs("preferences", TOMB_KEEP_MS));
+    return R;
+  }
+
+  function countRows(R) { return Object.values(R).reduce((n, arr) => n + (Array.isArray(arr) ? arr.length : 0), 0); }
+
+  async function runSyncUp() {
+    setSyncBusy(true);
+    try {
+      if (!loadSession()) { toast("请先登录", "error"); return; }
+      const R = await gatherCloudRows();
+      const n = countRows(R);
+      if (!n) { toast("本地暂无数据可上传", "success"); return; }
+      const res = await serverRequest("/api/sync/push", { method: "POST", body: { tables: R } });
+      let applied = 0;
+      for (const table of Object.keys(res.tables || {})) {
+        for (const row of (res.tables[table].conflicts || [])) {
+          if (row && (await applyRemoteRow(table, row))) applied++;
+        }
+      }
+      saveSyncState({ lastAt: Date.now() });
+      await refreshAllFromLocal();
+      toast("已上传 " + n + " 条到云端 ✨" + (applied ? "；回写本地 " + applied + " 条" : ""), "success");
+    } catch (e) {
+      toast("上传失败：" + e.message, "error");
+    } finally {
+      setSyncBusy(false);
+      renderAuthState();
+    }
+  }
+
+  async function runSyncDown() {
+    setSyncBusy(true);
+    try {
+      if (!loadSession()) { toast("请先登录", "error"); return; }
+      // 先把本机最新上行，再做全量拉取合并
+      const R = await gatherCloudRows();
+      await serverRequest("/api/sync/push", { method: "POST", body: { tables: R } });
+      let applied = 0;
+      for (const table of REMOTE_TABLES) {
+        const res = await serverRequest("/api/sync/pull?table=" + table + "&since=0&limit=1000");
+        for (const row of (res.rows || [])) {
+          if (await applyRemoteRow(table, row)) applied++;
+        }
+      }
+      saveSyncState({ lastAt: Date.now() });
+      await refreshAllFromLocal();
+      toast(applied ? "已合并 " + applied + " 条云端更新 ✨" : "云端与本地已一致", "success");
+    } catch (e) {
+      toast("拉取失败：" + e.message, "error");
+    } finally {
+      setSyncBusy(false);
+      renderAuthState();
+    }
+  }
+
+  // 应用一条服务端行到本地；true=有落地变更
+  async function applyRemoteRow(table, row) {
+    if (!row || typeof row !== "object") return false;
+    try {
+      if (table === "memos") {
+        const id = Number(row.id);
+        const loc = state.memos.find((m) => Number(m.id) === id);
+        const locUp = loc ? Number(loc.updatedAt || loc.createdAt || 0) : 0;
+        const svrUp = Number(row.updated_at || 0);
+        if (row.deleted_at) {
+          if (loc && svrUp >= locUp) { await KLDB.deleteMemo(id); return true; }
+          return false; // 本机版本更新 → 保留（稍后上行覆盖）
+        }
+        if (loc && svrUp <= locUp) return false;
+        const rec = {
+          id,
+          title: row.title || "", content: row.content || "", color: row.color || "pink",
+          tags: safeJson(row.tags_json, []),
+          pinned: !!row.pinned, archived: !!row.archived, trashed: !!row.trashed,
+          trashedAt: row.trashed_at || null,
+          createdAt: (loc && loc.createdAt) || Number(row.created_at) || Date.now(),
+          updatedAt: svrUp || Date.now()
+        };
+        await KLDB.put(KLDB.STORE.MEMO, rec);
+        return true;
+      }
+      if (table === "transactions") {
+        const id = Number(row.id);
+        const loc = state.txs.find((t) => Number(t.id) === id);
+        const locUp = loc ? Number(loc.createdAt || loc.ts || 0) : 0;
+        const svrUp = Number(row.updated_at || row.created_at || 0);
+        if (row.deleted_at) {
+          if (loc && svrUp >= locUp) { await KLDB.deleteTransaction(id); return true; }
+          return false;
+        }
+        if (loc && svrUp <= locUp && loc.createdAt) return false;
+        const tags = safeJson(row.tags_json, []);
+        const rec = {
+          type: row.type || "expense", amount: Number(row.amount_cents || 0) / 100,
+          bookId: row.book_id || KLDB.DEFAULT_BOOK_ID,
+          categoryId: row.category_id || null, accountId: row.account_id || "acc-cash",
+          accountFrom: row.account_from || null, accountTo: row.account_to || null,
+          note: row.note || "", tags, ts: Number(row.ts || row.created_at || Date.now()),
+          createdAt: Number(row.created_at) || Date.now()
+        };
+        if (loc) {
+          const patch = { note: rec.note, tags: rec.tags, amount: rec.amount, categoryId: rec.categoryId, accountId: rec.accountId, accountFrom: rec.accountFrom, accountTo: rec.accountTo, type: rec.type, ts: rec.ts };
+          await KLDB.updateTransaction(id, patch);
+        } else {
+          rec.id = id;
+          await KLDB.put(KLDB.STORE.TX, rec);
+        }
+        return true;
+      }
+      if (table === "preferences") {
+        const loc = state.prefs.find((p) => p.key === row.pkey);
+        const svrUp = Number(row.updated_at || 0);
+        if (row.deleted_at) {
+          if (loc && svrUp >= Number(loc.ts || 0)) { await KLDB.deletePreference(loc.id); return true; }
+          return false;
+        }
+        if (loc && svrUp < Number(loc.ts || 0)) return false; // 服务端更旧 → 保留本地
+        if (loc && svrUp <= Number(loc.ts || 0) && loc.value === row.pvalue) return false;
+        if (loc) { await KLDB.updatePreference(loc.id, { value: row.pvalue, source: row.source || "manual", ts: svrUp || Date.now() }); }
+        else { await KLDB.addPreference({ key: row.pkey, value: row.pvalue, source: row.source || "import" }); }
+        return true;
+      }
+      if (table === "categories") {
+        if (!state.categories.some((c) => c.id === row.id)) {
+          if (row.deleted_at) return false;
+          await KLDB.put(KLDB.STORE.CAT, { id: row.id, type: row.type === "income" ? "income" : "expense", name: row.name || "", icon: row.icon || "" });
+          return true;
+        }
+        return false;
+      }
+      if (table === "books") {
+        if (row.deleted_at) return false; // 账本删除传播留待下批
+        const books = KLDB.books();
+        if (!books.some((b) => b.id === row.id)) {
+          books.push({ id: row.id, name: row.name || "云端账本", icon: row.icon || "🐱", isDefault: !!row.is_default, createdAt: Number(row.created_at) || Date.now(), accounts: [] });
+          KLDB.saveBooks(books);
+          return true;
+        }
+        return false;
+      }
+      if (table === "accounts") {
+        if (row.deleted_at) return false;
+        const books = KLDB.books();
+        const target = books.find((b) => b.id === row.book_id);
+        if (!target) return false;
+        const accs = Array.isArray(target.accounts) ? target.accounts : (target.accounts = []);
+        const ex = accs.find((a) => a.id === row.id);
+        if (!ex) {
+          accs.push({ id: row.id, name: row.name || "", icon: row.icon || "💵", order: row.order_no != null ? row.order_no : 0 });
+          KLDB.saveBooks(books);
+          return true;
+        }
+        if (row.name && ex.name !== row.name) { ex.name = row.name; ex.icon = row.icon || ex.icon; KLDB.saveBooks(books); return true; }
+        return false;
+      }
+      if (table === "budgets") {
+        if (row.deleted_at) return false;
+        const books = KLDB.books();
+        if (!books.some((b) => b.id === row.book_id)) return false;
+        const bd = KLDB.loadBudgets(row.book_id);
+        if (!bd[row.month]) {
+          bd[row.month] = { total: Number(row.total_cents || 0) / 100, cats: safeJson(row.cats_json, {}) };
+          KLDB.saveBudgets(bd, row.book_id);
+          return true;
+        }
+        return false;
+      }
+    } catch (e) { /* 单行失败不中断整体 */ }
+    return false;
+  }
+
+  async function refreshAllFromLocal() {
+    state.books = KLDB.books();
+    state.activeBook = KLDB.currentBook();
+    KLDB.setActiveBookId(state.activeBook.id);
+    state.accounts = Array.isArray(state.activeBook.accounts) ? state.activeBook.accounts : [];
+    state.categories = await KLDB.allCategories();
+    state.prefs = await KLDB.allPreferences();
+    state.memos = await KLDB.allMemos();
+    await reloadActiveTx();
+    syncActiveBook();
+    renderAll();
+    renderBookSwitch();
   }
 
   function setupAuth() {

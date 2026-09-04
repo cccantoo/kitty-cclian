@@ -341,7 +341,40 @@
     const p = await this.get(STORE.PREF, id);
     return this.put(STORE.PREF, { ...p, ...patch, id });
   }
-  async function deletePreference(id) { return this.del(STORE.PREF, id); }
+  // 同步墓碑（本地物理删除时留一条服务端行格式的删除标记，供云同步传播）
+  function tombKeyOf(t) { return "kitty_tombs_" + t; }
+  function putTomb(table, key, row) {
+    try {
+      const store = JSON.parse(localStorage.getItem(tombKeyOf(table)) || "{}") || {};
+      store[String(key)] = row;
+      localStorage.setItem(tombKeyOf(table), JSON.stringify(store));
+    } catch (_) { /* 忽略损坏 */ }
+  }
+  function listTombs(table, keepMs) {
+    try {
+      const store = JSON.parse(localStorage.getItem(tombKeyOf(table)) || "{}") || {};
+      const now = Date.now();
+      const out = [];
+      for (const k of Object.keys(store)) {
+        const r = store[k];
+        if (r && r.deleted_at) {
+          if (!keepMs || now - Number(r.deleted_at) < keepMs) out.push(r);
+        }
+      }
+      return out;
+    } catch (_) { return []; }
+  }
+  async function deletePreference(id) {
+    const p = await this.get(STORE.PREF, id);
+    if (p) {
+      const now = Date.now();
+      putTomb("preferences", "p:" + p.key, {
+        pkey: p.key, pvalue: String(p.value === undefined || p.value === null ? "" : p.value),
+        source: p.source || "manual", created_at: p.ts || now, updated_at: now, deleted_at: now
+      });
+    }
+    return this.del(STORE.PREF, id);
+  }
 
   // memos（备忘录：标题/正文/标签 + 待办清单行 + 颜色 + 状态）
   //  - content 为纯文本，行首 "[ ] "/"[x] " 解析为待办清单
@@ -372,7 +405,20 @@
     const now = Date.now();
     return this.put(STORE.MEMO, { ...m, ...rest, id, updatedAt: noTouch ? (m.updatedAt || now) : now });
   }
-  async function deleteMemo(id) { return this.del(STORE.MEMO, id); }
+  async function deleteMemo(id) {
+    const m = await this.get(STORE.MEMO, id);
+    if (m) {
+      const now = Date.now();
+      putTomb("memos", String(id), {
+        id: m.id, title: m.title || "", content: m.content || "", color: m.color || "pink",
+        tags_json: JSON.stringify(m.tags || []),
+        pinned: m.pinned ? 1 : 0, archived: m.archived ? 1 : 0, trashed: m.trashed ? 1 : 0,
+        trashed_at: m.trashedAt || null,
+        created_at: m.createdAt || now, updated_at: now, deleted_at: now
+      });
+    }
+    return this.del(STORE.MEMO, id);
+  }
 
   // messages
   async function addMessage({ role, content, toolCalls, kind }) {
@@ -398,6 +444,7 @@
     cloneDefaultAccounts,
     books, saveBooks,
     activeBookId, setActiveBookId, currentBook,
-    loadBudgets, saveBudgets, removeBudgets
+    loadBudgets, saveBudgets, removeBudgets,
+    listTombs
   };
 })(window);
