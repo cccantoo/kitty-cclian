@@ -1172,7 +1172,8 @@
   //  支持：颜色贴纸 / 置顶 / 标签筛选 / 全文搜索 / 排序 / 复制
   // ============================================================
   function setupMemo() {
-    document.getElementById("btnAddMemo").addEventListener("click", () => openMemoModal());
+    document.getElementById("btnAddMemo").addEventListener("click", () => openMemoEditor(null));
+    setupMemoEditor();
     const search = document.getElementById("memoSearch");
     search.addEventListener("input", (e) => {
       state.memoUI.q = e.target.value.trim().toLowerCase();
@@ -1459,102 +1460,187 @@
     toast("回收站已清空", "success");
   }
 
-  // ---------- 新建 / 编辑 ----------
-  function openMemoModal(existing = null) {
-    const curColor = (existing && MEMO_COLORS[existing.color]) ? existing.color : "pink";
-    const colorRow = Object.keys(MEMO_COLORS).map((key) => `
+  // ---------- 新建 / 编辑：全屏大编辑区（对标 Apple 备忘录 / Keep） ----------
+  // 当前编辑会话（id=null 表示新建）
+  let memoEditing = null;
+
+  function openMemoEditor(existing = null) {
+    memoEditing = {
+      id: existing ? existing.id : null,
+      color: (existing && MEMO_COLORS[existing.color]) ? existing.color : "pink",
+      tags: Array.isArray(existing && existing.tags) ? existing.tags.slice() : [],
+      dirty: false
+    };
+    document.getElementById("meTitle").value = (existing && existing.title) || "";
+    document.getElementById("meContent").value = (existing && existing.content) || "";
+    document.getElementById("meHeadTitle").textContent = existing ? "编辑备忘" : "新建备忘";
+    renderMeColors();
+    renderMeTags();
+    updateMeCount();
+    const wrap = document.getElementById("memoEditor");
+    wrap.classList.add("open");
+    wrap.setAttribute("aria-hidden", "false");
+    setTimeout(() => {
+      const t = existing ? document.getElementById("meContent") : document.getElementById("meTitle");
+      t.focus();
+    }, 60);
+  }
+
+  function closeMemoEditor() {
+    const wrap = document.getElementById("memoEditor");
+    if (!wrap) return;
+    wrap.classList.remove("open");
+    wrap.setAttribute("aria-hidden", "true");
+    memoEditing = null;
+  }
+
+  function renderMeColors() {
+    const box = document.getElementById("meColors");
+    if (!box) return;
+    const cur = memoEditing ? memoEditing.color : "pink";
+    box.innerHTML = Object.keys(MEMO_COLORS).map((key) => `
       <div class="memo-color-item">
-        <button type="button" class="memo-color-dot ${key === curColor ? "on" : ""}" data-mcolor="${key}" style="background:${MEMO_COLORS[key]}" aria-label="${MEMO_COLOR_LABELS[key]}">${key === curColor ? "✓" : ""}</button>
-        <span class="memo-color-name">${MEMO_COLOR_LABELS[key]}</span>
+        <button type="button" class="memo-color-dot ${key === cur ? "on" : ""}" data-mcolor="${key}" style="background:${MEMO_COLORS[key]}" aria-label="${MEMO_COLOR_LABELS[key]}">${key === cur ? "✓" : ""}</button>
       </div>`).join("");
-    showModal({
-      title: existing ? "编辑备忘 ✏️" : "新建备忘 🌸",
-      bodyHtml: `
-        <div class="form-group">
-          <label class="form-label">标题</label>
-          <input type="text" id="mMemoTitle" class="form-input" value="${escapeHtml(existing?.title || "")}" placeholder="一句话标题">
-        </div>
-        <div class="form-group">
-          <label class="form-label">贴纸颜色</label>
-          <div class="memo-colors" id="memoColors">${colorRow}</div>
-        </div>
-        <div class="form-group">
-          <label class="form-label">内容</label>
-          <textarea id="mMemoContent" class="form-textarea" style="min-height:120px" placeholder="详细记录…">${escapeHtml(existing?.content || "")}</textarea>
-          <button type="button" class="btn-insert-todo" id="btnInsertTodo">＋ 添加待办项</button>
-          <div class="memo-tip">💡 以 <b>[ ] </b> 开头的行会变成待办清单，写 <b>[x] </b> 表示已完成；在卡片上也能直接勾选。</div>
-        </div>
-        <div class="form-group">
-          <label class="form-label">标签（用空格或逗号分隔）</label>
-          <input type="text" id="mMemoTags" class="form-input" value="${escapeHtml((existing?.tags || []).join(", "))}" placeholder="e.g. 工作, 周会">
-          ${existing ? '<div style="margin-top:8px"><button type="button" class="btn-insert-todo" id="btnCopyMemo">📋 复制全文</button></div>' : ""}
-        </div>
-      `,
-      onConfirm: async () => {
-        const title = document.getElementById("mMemoTitle").value.trim();
-        let content = document.getElementById("mMemoContent").value;
-        content = content.replace(/\s+$/, "");
-        const tagsRaw = document.getElementById("mMemoTags").value.trim();
-        const tags = tagsRaw ? Array.from(new Set(tagsRaw.split(/[\s,，]+/).filter(Boolean))) : [];
-        const color = document.querySelector("#memoColors .memo-color-dot.on")?.dataset.mcolor || "pink";
-        if (!title && !content) { toast("标题或内容总得填一个吧", "error"); return false; }
-        if (existing) {
-          await KLDB.updateMemo(existing.id, { title, content, tags, color });
+  }
+
+  function renderMeTags() {
+    const row = document.getElementById("meTags");
+    if (!row || !memoEditing) return;
+    row.innerHTML = memoEditing.tags.map((t) => `
+      <span class="me-tag-chip">#${escapeHtml(t)}<button type="button" class="me-tag-x" data-tag="${escapeHtml(t)}">✕</button></span>`).join("")
+      || '<span class="me-count" style="flex:none">暂无标签</span>';
+    const add = document.getElementById("meTagAdd");
+    add.classList.toggle("on", memoEditing.tags.length > 0);
+  }
+
+  function commitMeTag() {
+    const inp = document.getElementById("meTagInput");
+    const raw = (inp.value || "").trim();
+    if (!raw) return;
+    const adds = Array.from(new Set(raw.split(/[\s,，]+/).filter(Boolean)))
+      .slice(0, 8 - memoEditing.tags.length);
+    if (adds.length) {
+      memoEditing.tags = memoEditing.tags.concat(adds).slice(0, 8);
+      memoEditing.dirty = true;
+      inp.value = "";
+      renderMeTags();
+    }
+  }
+
+  function updateMeCount() {
+    const el = document.getElementById("meCount");
+    const ta = document.getElementById("meContent");
+    if (!el || !ta) return;
+    const content = ta.value;
+    const chars = content.replace(/\s/g, "").length;
+    const todo = memoTodos({ content });
+    el.textContent = todo.total
+      ? `${chars} 字 · 待办 ${todo.done}/${todo.total}`
+      : `${chars} 字`;
+  }
+
+  function saveMemoEditor() {
+    if (!memoEditing) return;
+    const title = document.getElementById("meTitle").value.trim();
+    let content = document.getElementById("meContent").value;
+    content = content.replace(/\s+$/, "");
+    if (!title && !content) { toast("标题或内容总得填一个吧", "error"); return; }
+    const color = memoEditing.color;
+    const tags = memoEditing.tags;
+    (async () => {
+      try {
+        if (memoEditing.id) {
+          await KLDB.updateMemo(memoEditing.id, { title, content, tags, color });
         } else {
           await KLDB.addMemo({ title, content, tags, color });
         }
+        const wasNew = !memoEditing.id;
+        closeMemoEditor();
         await refreshMemoStore();
         renderMemo();
-        toast(existing ? "已更新 ✨" : "已新建 ✨", "success");
-        return true;
-      },
-      extraBtn: existing ? { label: "移到回收站", danger: true, onClick: async () => {
-        await KLDB.updateMemo(existing.id, { trashed: true, archived: false, trashedAt: Date.now(), noTouch: true });
-        await refreshMemoStore();
-        renderMemo();
-        toast("已移到回收站（可恢复）", "success");
-        return true;
-      } } : null
+        toast(wasNew ? "已新建 ✨" : "已保存 ✨", "success");
+      } catch (e) {
+        toast("保存失败：" + ((e && e.message) || e), "error");
+      }
+    })();
+  }
+
+  // 全屏编辑器事件（元素常驻，启动时绑定一次）
+  function setupMemoEditor() {
+    const ed = document.getElementById("memoEditor");
+    if (!ed) return;
+    document.getElementById("meCancel").addEventListener("click", () => {
+      if (memoEditing && memoEditing.dirty) {
+        if (!confirm("还有未保存的修改，确定放弃吗？")) return;
+      }
+      closeMemoEditor();
     });
-    // 颜色选择
-    document.getElementById("memoColors").addEventListener("click", (e) => {
-      const dot = e.target.closest(".memo-color-dot");
-      if (!dot) return;
-      document.querySelectorAll("#memoColors .memo-color-dot").forEach((d) => {
-        d.classList.toggle("on", d === dot);
-        d.innerHTML = d === dot ? "✓" : "";
-      });
+    document.getElementById("meSave").addEventListener("click", saveMemoEditor);
+    document.getElementById("meTitle").addEventListener("input", () => { if (memoEditing) memoEditing.dirty = true; });
+    document.getElementById("meContent").addEventListener("input", () => {
+      if (!memoEditing) return;
+      memoEditing.dirty = true;
+      updateMeCount();
     });
-    // 插入待办行
-    document.getElementById("btnInsertTodo").addEventListener("click", () => {
-      const ta = document.getElementById("mMemoContent");
+    // 待办插入（光标处）
+    document.getElementById("meAddTodo").addEventListener("click", () => {
+      const ta = document.getElementById("meContent");
       const add = "[ ] ";
       const v = ta.value;
       const idx = ta.selectionStart != null ? ta.selectionStart : v.length;
       ta.value = v.slice(0, idx) + add + v.slice(idx);
+      memoEditing.dirty = true;
+      updateMeCount();
       ta.focus();
       const pos = idx + add.length;
       try { ta.setSelectionRange(pos, pos); } catch (_) { /* iOS */ }
     });
-    // 复制全文
-    const copyBtn = document.getElementById("btnCopyMemo");
-    if (copyBtn) copyBtn.addEventListener("click", () => copyMemoText(existing.id));
+    // 复制
+    document.getElementById("meCopy").addEventListener("click", () => {
+      const title = document.getElementById("meTitle").value.trim();
+      const content = document.getElementById("meContent").value;
+      const txt = ((title || "") + "\n" + content).trim();
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(txt).then(() => toast("已复制 📋", "success")).catch(() => toast("复制失败", "error"));
+      } else {
+        toast("当前浏览器不支持复制", "error");
+      }
+    });
+    // 颜色
+    document.getElementById("meColors").addEventListener("click", (e) => {
+      const dot = e.target.closest(".memo-color-dot");
+      if (!dot) return;
+      if (!memoEditing) return;
+      memoEditing.color = dot.dataset.mcolor;
+      memoEditing.dirty = true;
+      renderMeColors();
+    });
+    // 标签：开关输入框
+    document.getElementById("meTagAdd").addEventListener("click", () => {
+      const inp = document.getElementById("meTagInput");
+      inp.style.display = inp.style.display === "none" ? "" : "none";
+      if (inp.style.display !== "none") inp.focus();
+    });
+    const tagInput = document.getElementById("meTagInput");
+    tagInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); commitMeTag(); }
+      if (e.key === "Escape") { tagInput.style.display = "none"; tagInput.value = ""; }
+    });
+    tagInput.addEventListener("blur", () => { if (!tagInput.value.trim()) { tagInput.style.display = "none"; } });
+    // 删除标签 chip
+    document.getElementById("meTags").addEventListener("click", (e) => {
+      const x = e.target.closest(".me-tag-x");
+      if (!x || !memoEditing) return;
+      memoEditing.tags = memoEditing.tags.filter((t) => t !== x.dataset.tag);
+      memoEditing.dirty = true;
+      renderMeTags();
+    });
   }
 
   function editMemo(id) {
     const m = state.memos.find((x) => String(x.id) === String(id));
-    if (m) openMemoModal(m);
-  }
-
-  function copyMemoText(id) {
-    const m = state.memos.find((x) => String(x.id) === String(id));
-    if (!m) return;
-    const txt = ((m.title || "") + "\n" + (m.content || "")).trim();
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(txt).then(() => toast("已复制 📋", "success")).catch(() => toast("复制失败", "error"));
-    } else {
-      toast("当前浏览器不支持复制", "error");
-    }
+    if (m) openMemoEditor(m);
   }
 
   // ============================================================

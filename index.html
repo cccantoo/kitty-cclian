@@ -12,8 +12,8 @@
   <link rel="icon" type="image/png" href="./icons/app/icon-192.png">
   <link rel="apple-touch-icon" href="./icons/app/icon-512.png">
   <title>Kitty 账本</title>
-  <link rel="stylesheet" href="./css/style.css?v=16">
-  <link rel="stylesheet" href="./css/report.css?v=16">
+  <link rel="stylesheet" href="./css/style.css?v=17">
+  <link rel="stylesheet" href="./css/report.css?v=17">
 </head>
 <body>
 
@@ -204,8 +204,33 @@
     </div>
   </div>
 
-<script src="./js/db.js?v=16"></script>
-    <script src="./js/ai.js?v=16"></script>
-    <script src="./js/app.js?v=16"></script>
+  <!-- 备忘录全屏编辑器（对标 Apple 备忘录/Keep：正文区占满全屏） -->
+  <div class="memo-editor" id="memoEditor" aria-hidden="true">
+    <div class="me-head">
+      <button type="button" class="me-cancel" id="meCancel">‹ 返回</button>
+      <div class="me-head-title" id="meHeadTitle">新建备忘</div>
+      <button type="button" class="me-save" id="meSave">保存</button>
+    </div>
+    <input type="text" id="meTitle" class="me-title" maxlength="60" placeholder="标题">
+    <div class="me-meta-row">
+      <span class="me-label">颜色</span>
+      <div class="memo-colors me-colors" id="meColors"></div>
+      <button type="button" class="me-tag-btn" id="meTagAdd">🏷 标签</button>
+    </div>
+    <div class="me-tags-row" id="meTagRow">
+      <div class="me-tags" id="meTags"></div>
+      <input type="text" id="meTagInput" class="me-tag-input" placeholder="输入后回车" style="display:none">
+    </div>
+    <textarea id="meContent" class="me-content" placeholder="开始记点什么吧…&#10;&#10;💡 行首写 [ ] 就变成待办，例如：&#10;[ ] 取快递&#10;[x] 已完成的待办"></textarea>
+    <div class="me-toolbar">
+      <button type="button" class="me-tool" id="meAddTodo">☑ 待办</button>
+      <button type="button" class="me-tool" id="meCopy">📋 复制</button>
+      <span class="me-count" id="meCount"></span>
+    </div>
+  </div>
+
+<script src="./js/db.js?v=17"></script>
+    <script src="./js/ai.js?v=17"></script>
+    <script src="./js/app.js?v=17"></script>
 </body>
 </html>
