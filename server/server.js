@@ -4,6 +4,8 @@
  */
 "use strict";
 
+require("./env"); // 最先加载：支持 server/.env（已有环境变量优先）
+
 const express = require("express");
 const db = require("./db");
 const auth = require("./auth");

@@ -7,12 +7,14 @@
 ```bash
 cd server
 npm install
-# 配置连接（参照 .env.example）
-export DB_PASSWORD=你的密码
-# 或直接在 shell 里 export 一套：
-# export DB_HOST=127.0.0.1 DB_PORT=3306 DB_USER=root DB_PASSWORD=xxx DB_NAME=kitty_db
+# 配置连接：把 .env.example 复制为 .env，填上 DB_PASSWORD
+cp .env.example .env    # Windows: copy .env.example .env
 node server.js
 ```
+
+> Windows（cmd / PowerShell）不要用 `export`——那是 bash 语法。直接用 `.env` 文件即可；或临时设置：
+> - PowerShell：`$env:DB_PASSWORD="你的密码"` 然后 `node server.js`
+> - cmd：`set DB_PASSWORD=你的密码` 然后 `node server.js`
 
 启动时会自动：
 1. 创建数据库 `kitty_db`（utf8mb4）
