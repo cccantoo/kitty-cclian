@@ -343,18 +343,34 @@
   }
   async function deletePreference(id) { return this.del(STORE.PREF, id); }
 
-  // memos
+  // memos（备忘录：标题/正文/标签 + 待办清单行 + 颜色 + 状态）
+  //  - content 为纯文本，行首 "[ ] "/"[x] " 解析为待办清单
+  //  - color: 预设颜色 key；pinned 置顶；archived 归档；trashed 软删进回收站
   async function allMemos() {
     const list = await this.all(STORE.MEMO);
     return list.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || b.updatedAt - a.updatedAt);
   }
-  async function addMemo({ title, content, tags }) {
+  async function addMemo({ title, content, tags, color, pinned, archived, trashed, trashedAt }) {
     const now = Date.now();
-    return this.add(STORE.MEMO, { title, content: content || "", tags: tags || [], pinned: false, createdAt: now, updatedAt: now });
+    return this.add(STORE.MEMO, {
+      title: String(title || "").trim(),
+      content: content || "",
+      tags: tags || [],
+      color: color || "pink",
+      pinned: !!pinned,
+      archived: !!archived,
+      trashed: !!trashed,
+      trashedAt: trashedAt || null,
+      createdAt: now,
+      updatedAt: now
+    });
   }
+  // noTouch=true 时（勾选待办/置顶/归档/回收站等元操作）不刷新 updatedAt，避免列表排序跳动
   async function updateMemo(id, patch) {
     const m = await this.get(STORE.MEMO, id);
-    return this.put(STORE.MEMO, { ...m, ...patch, id, updatedAt: Date.now() });
+    const { noTouch, ...rest } = patch || {};
+    const now = Date.now();
+    return this.put(STORE.MEMO, { ...m, ...rest, id, updatedAt: noTouch ? (m.updatedAt || now) : now });
   }
   async function deleteMemo(id) { return this.del(STORE.MEMO, id); }
 

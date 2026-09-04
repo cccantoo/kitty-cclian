@@ -12,8 +12,8 @@
   <link rel="icon" type="image/png" href="./icons/app/icon-192.png">
   <link rel="apple-touch-icon" href="./icons/app/icon-512.png">
   <title>Kitty 账本</title>
-  <link rel="stylesheet" href="./css/style.css?v=15">
-  <link rel="stylesheet" href="./css/report.css?v=15">
+  <link rel="stylesheet" href="./css/style.css?v=16">
+  <link rel="stylesheet" href="./css/report.css?v=16">
 </head>
 <body>
 
@@ -127,6 +127,20 @@
         <input type="text" id="memoSearch" class="memo-search" placeholder="搜索备忘...">
         <button class="btn-add-memo" id="btnAddMemo" title="新建备忘">＋ 新建</button>
       </div>
+      <div class="memo-subbar" id="memoSubbar">
+        <div class="memo-chips" id="memoChips"></div>
+        <div class="memo-view-actions">
+          <button class="memo-view-btn" id="btnMemoSort" title="排序：最近更新">⇅</button>
+          <button class="memo-view-btn" id="btnMemoArchived" title="归档">📥<span class="badge-count memo-badge hidden" id="memoArchivedCount">0</span></button>
+          <button class="memo-view-btn" id="btnMemoTrash" title="回收站">🗑️<span class="badge-count memo-badge hidden" id="memoTrashCount">0</span></button>
+        </div>
+      </div>
+      <div class="memo-subhead hidden" id="memoSubhead">
+        <button class="btn-back-memo" id="btnMemoBack">‹ 返回</button>
+        <span class="memo-subhead-title" id="memoSubheadTitle">归档</span>
+        <span class="memo-subhead-count" id="memoSubheadCount"></span>
+        <button class="memo-clear-trash hidden" id="btnMemoClearTrash">🗑️ 清空回收站</button>
+      </div>
       <div class="memo-list" id="memoList">
         <div class="empty-hint">还没有备忘录～<br>记录想记住的事 ✨</div>
       </div>
@@ -190,8 +204,8 @@
     </div>
   </div>
 
-<script src="./js/db.js?v=15"></script>
-    <script src="./js/ai.js?v=15"></script>
-    <script src="./js/app.js?v=15"></script>
+<script src="./js/db.js?v=16"></script>
+    <script src="./js/ai.js?v=16"></script>
+    <script src="./js/app.js?v=16"></script>
 </body>
 </html>

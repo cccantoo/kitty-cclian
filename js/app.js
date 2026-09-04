@@ -56,6 +56,24 @@
     "🍽️", "🚗", "🐶", "⚽"
   ];
 
+  // 备忘录贴纸颜色（key → 背景色）；沿用柔粉主题
+  const MEMO_COLORS = {
+    pink:  "#FFE7F0",
+    peach: "#FFEAD9",
+    lemon: "#FFF6CC",
+    mint:  "#DDF4E7",
+    sky:   "#DEEEFA",
+    lilac: "#ECE1F9"
+  };
+  const MEMO_COLOR_LABELS = { pink: "粉", peach: "杏", lemon: "柠", mint: "薄荷", sky: "天空", lilac: "淡紫" };
+  const MEMO_SORTS = [
+    { key: "updated", label: "最近更新", title: "排序：最近更新" },
+    { key: "oldest",  label: "最早创建", title: "排序：最早创建" },
+    { key: "title",   label: "标题 A-Z", title: "排序：标题 A-Z" }
+  ];
+  // 待办行识别：行首 [ ] / [x] / [X]
+  const MEMO_TODO_RE = /^\[([ xX])\]\s?(.*)$/;
+
   const state = {
     books: [],
     activeBook: null,
@@ -66,7 +84,8 @@
     accounts: [],
     chatHistory: [],
     reportOffset: 0,   // 报表：0=本月，-1=上月
-    budgetOffset: 0    // 预算：0=本月
+    budgetOffset: 0,   // 预算：0=本月
+    memoUI: { view: "list", q: "", tag: null, sort: "updated" } // 备忘视图状态
   };
 
   // AI 配置（localStorage 持久化）
@@ -1147,87 +1166,395 @@
   }
 
   // ============================================================
-  // 备忘录
+  // 备忘录 v2
+  //  主列表 = 未归档未删除；归档/回收站为独立视图
+  //  正文行首 "[ ] text" / "[x] text" = 待办清单（卡片上可直接勾选）
+  //  支持：颜色贴纸 / 置顶 / 标签筛选 / 全文搜索 / 排序 / 复制
   // ============================================================
   function setupMemo() {
     document.getElementById("btnAddMemo").addEventListener("click", () => openMemoModal());
-    document.getElementById("memoSearch").addEventListener("input", (e) => renderMemo(e.target.value.toLowerCase()));
+    const search = document.getElementById("memoSearch");
+    search.addEventListener("input", (e) => {
+      state.memoUI.q = e.target.value.trim().toLowerCase();
+      renderMemo();
+    });
+    document.getElementById("btnMemoArchived").addEventListener("click", () => switchMemoView("archived"));
+    document.getElementById("btnMemoTrash").addEventListener("click", () => switchMemoView("trash"));
+    document.getElementById("btnMemoBack").addEventListener("click", () => switchMemoView("list"));
+    document.getElementById("btnMemoSort").addEventListener("click", cycleMemoSort);
+    document.getElementById("btnMemoClearTrash").addEventListener("click", clearMemoTrash);
+    document.getElementById("memoList").addEventListener("click", onMemoListClick);
   }
 
-  function renderMemo(filter = "") {
-    const list = document.getElementById("memoList");
-    let items = state.memos;
-    if (filter) {
-      items = items.filter((m) =>
-        (m.title || "").toLowerCase().includes(filter)
-        || (m.content || "").toLowerCase().includes(filter)
-        || (m.tags || []).some((t) => (t || "").toLowerCase().includes(filter))
-      );
+  function switchMemoView(view) {
+    state.memoUI.view = view;
+    if (view === "list") state.memoUI.tag = null;
+    renderMemo();
+  }
+
+  function cycleMemoSort() {
+    const idx = MEMO_SORTS.findIndex((s) => s.key === state.memoUI.sort);
+    state.memoUI.sort = MEMO_SORTS[(idx + 1) % MEMO_SORTS.length].key;
+    const cur = MEMO_SORTS.find((s) => s.key === state.memoUI.sort);
+    toast("排序：" + cur.label, "success");
+    renderMemo();
+  }
+
+  async function refreshMemoStore() {
+    state.memos = await KLDB.allMemos();
+  }
+
+  // 当前视图对应的备忘集合（回收站优先级最高）
+  function memoViewBase() {
+    const v = state.memoUI.view;
+    return state.memos.filter((m) => v === "trash" ? !!m.trashed
+      : v === "archived" ? (!!m.archived && !m.trashed)
+      : (!m.trashed && !m.archived));
+  }
+
+  function memoMatches(m, q) {
+    if (!q) return true;
+    return (m.title || "").toLowerCase().includes(q)
+      || (m.content || "").toLowerCase().includes(q)
+      || (m.tags || []).some((t) => String(t || "").toLowerCase().includes(q));
+  }
+
+  function memoBg(m) { return MEMO_COLORS[m.color] || MEMO_COLORS.pink; }
+
+  function memoTodos(m) {
+    let done = 0, total = 0;
+    for (const line of String(m.content || "").split("\n")) {
+      const mm = line.match(MEMO_TODO_RE);
+      if (!mm) continue;
+      total++;
+      if (mm[1].toLowerCase() === "x") done++;
     }
+    return { done, total };
+  }
+
+  function renderMemo() {
+    const list = document.getElementById("memoList");
+    const v = state.memoUI.view;
+    const q = state.memoUI.q;
+    syncMemoChrome();
+
+    let items = memoViewBase();
+    if (q) items = items.filter((m) => memoMatches(m, q));
+    if (v === "list" && state.memoUI.tag) items = items.filter((m) => (m.tags || []).includes(state.memoUI.tag));
+    sortMemos(items);
+
     if (items.length === 0) {
-      list.innerHTML = '<div class="empty-hint">还没有备忘录～<br>记录想记住的事 ✨</div>';
+      list.innerHTML = memoEmptyHtml();
       return;
     }
-    list.innerHTML = items.map((m) => `
-      <div class="memo-card" data-id="${m.id}">
-        <div class="memo-card-title">${escapeHtml(m.title || "（无标题）")}</div>
-        <div class="memo-card-content">${escapeHtml(m.content || "")}</div>
-        <div class="memo-card-meta">
-          ${(m.tags || []).map((t) => `<span class="memo-tag">${escapeHtml(t)}</span>`).join("")}
-          <span class="memo-tag">${new Date(m.updatedAt || m.createdAt).toLocaleDateString("zh-CN")}</span>
-        </div>
-      </div>`).join("");
-    list.querySelectorAll(".memo-card").forEach((card) => {
-      card.addEventListener("click", () => editMemo(card.dataset.id));
+    list.innerHTML = items.map(memoCardHtml).join("");
+  }
+
+  function sortMemos(items) {
+    const s = state.memoUI.sort;
+    items.sort((a, b) => {
+      if (!!b.pinned !== !!a.pinned) return (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0);
+      if (s === "title") return String(a.title || "").localeCompare(String(b.title || ""), "zh");
+      if (s === "oldest") return (a.createdAt || 0) - (b.createdAt || 0);
+      return (b.updatedAt || 0) - (a.updatedAt || 0);
     });
   }
 
+  // 标签筛选 chips / 归档与回收站计数 / 子头部
+  function syncMemoChrome() {
+    const v = state.memoUI.view;
+    const archN = state.memos.filter((m) => m.archived && !m.trashed).length;
+    const trashN = state.memos.filter((m) => m.trashed).length;
+    badge(document.getElementById("memoArchivedCount"), archN);
+    badge(document.getElementById("memoTrashCount"), trashN);
+    document.getElementById("btnMemoArchived").classList.toggle("on", v === "archived");
+    document.getElementById("btnMemoTrash").classList.toggle("on", v === "trash");
+    document.getElementById("btnMemoSort").title = (MEMO_SORTS.find((s) => s.key === state.memoUI.sort) || MEMO_SORTS[0]).title;
+
+    const subbar = document.getElementById("memoSubbar");
+    const subhead = document.getElementById("memoSubhead");
+    const inList = v === "list";
+    subbar.classList.toggle("hidden", !inList);
+    subhead.classList.toggle("hidden", inList);
+    if (!inList) {
+      document.getElementById("memoSubheadTitle").textContent = v === "archived" ? "📥 归档" : "🗑️ 回收站";
+      const n = memoViewBase().length;
+      document.getElementById("memoSubheadCount").textContent = n ? `${n} 条` : "";
+      const clear = document.getElementById("btnMemoClearTrash");
+      clear.classList.toggle("hidden", !(v === "trash" && n > 0));
+    }
+    if (inList) renderMemoChips();
+  }
+
+  function badge(el, n) {
+    if (!el) return;
+    el.textContent = n;
+    el.classList.toggle("hidden", !n);
+  }
+
+  function renderMemoChips() {
+    const box = document.getElementById("memoChips");
+    const counts = new Map();
+    for (const m of memoViewBase()) {
+      for (const t of (m.tags || [])) {
+        const tag = String(t || "").trim();
+        if (!tag) continue;
+        counts.set(tag, (counts.get(tag) || 0) + 1);
+      }
+    }
+    const tags = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 12);
+    const sel = state.memoUI.tag;
+    let html = `<button type="button" class="memo-chip ${!sel ? "on" : ""}" data-tag="">全部</button>`;
+    html += tags.map(([t, c]) => `<button type="button" class="memo-chip ${sel === t ? "on" : ""}" data-tag="${escapeHtml(t)}">#${escapeHtml(t)} ${c}</button>`).join("");
+    box.innerHTML = html;
+    box.querySelectorAll(".memo-chip").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        state.memoUI.tag = chip.dataset.tag || null;
+        renderMemo();
+      });
+    });
+  }
+
+  function memoCardHtml(m) {
+    const v = state.memoUI.view;
+    const cls = ["memo-card"];
+    if (m.pinned) cls.push("pinned");
+    if (v === "archived") cls.push("archived");
+    if (v === "trash") cls.push("trashed");
+    const lines = String(m.content || "").split("\n");
+    const todo = memoTodos(m);
+    const showLines = [];
+    let more = false;
+    for (let i = 0; i < lines.length; i++) {
+      if (!lines[i].trim()) continue;
+      const mm = lines[i].match(MEMO_TODO_RE);
+      if (mm) {
+        showLines.push(`<div class="memo-todo-row ${mm[1].toLowerCase() === "x" ? "done" : ""}" data-line="${i}">
+          <span class="memo-todo-box">${mm[1].toLowerCase() === "x" ? "✓" : ""}</span>
+          <span class="memo-todo-text">${escapeHtml(mm[2])}</span>
+        </div>`);
+      } else {
+        showLines.push(`<div class="memo-line">${escapeHtml(lines[i])}</div>`);
+      }
+      if (showLines.length >= 5) { more = true; break; }
+    }
+    const bodyHtml = showLines.length
+      ? showLines.join("") + (more ? '<div class="memo-line dim">…</div>' : "")
+      : '<div class="memo-line dim">（无正文，点卡片补一句吧）</div>';
+
+    const tagsHtml = (m.tags || []).map((t) => `<span class="memo-tag">${escapeHtml(t)}</span>`).join("");
+    const statusHtml = v === "archived"
+      ? '<span class="memo-tag arch-tag">已归档</span>'
+      : v === "trash"
+        ? '<span class="memo-tag arch-tag">回收站</span>'
+        : "";
+    const progHtml = todo.total ? `<span class="memo-tag memo-progress">待办 ${todo.done}/${todo.total}</span>` : "";
+    const dateStr = new Date(m.updatedAt || m.createdAt).toLocaleDateString("zh-CN");
+
+    const tools = memoCardTools(m, v);
+    return `
+      <div class="${cls.join(" ")}" data-id="${m.id}" style="background:${memoBg(m)}">
+        <div class="memo-card-top">
+          <div class="memo-card-title">${escapeHtml(m.title || "（无标题）")}</div>
+          <div class="memo-card-tools">${tools}</div>
+        </div>
+        <div class="memo-card-body">${bodyHtml}</div>
+        <div class="memo-card-meta">
+          ${statusHtml}${progHtml}${tagsHtml}
+          <span class="memo-tag">${dateStr}</span>
+        </div>
+      </div>`;
+  }
+
+  function memoCardTools(m, v) {
+    if (v === "trash") {
+      return `
+        <button type="button" class="memo-card-btn" data-act="restore" title="恢复">↩️</button>
+        <button type="button" class="memo-card-btn" data-act="purge" title="彻底删除">🗑️</button>`;
+    }
+    if (v === "archived") {
+      return `
+        <button type="button" class="memo-card-btn" data-act="restore" title="移回列表">📤</button>
+        <button type="button" class="memo-card-btn" data-act="trash" title="移到回收站">🗑️</button>`;
+    }
+    return `
+      <button type="button" class="memo-card-btn ${m.pinned ? "on" : ""}" data-act="pin" title="置顶/取消置顶">📌</button>
+      <button type="button" class="memo-card-btn" data-act="archive" title="归档">📥</button>
+      <button type="button" class="memo-card-btn" data-act="trash" title="移到回收站">🗑️</button>`;
+  }
+
+  function memoEmptyHtml() {
+    const v = state.memoUI.view;
+    const q = state.memoUI.q;
+    const base = memoViewBase().length;
+    if (v === "trash") return `<div class="empty-hint">${q || base ? "没有匹配的备忘" : "回收站空空如也～<br>删除的备忘会先来这里，可随时恢复 ✨"}</div>`;
+    if (v === "archived") return `<div class="empty-hint">${q || base ? "没有匹配的备忘" : "还没有归档的备忘～<br>主列表点 📥 可归档 ✨"}</div>`;
+    return q ? '<div class="empty-hint">没有找到匹配的备忘～<br>换个关键词试试 🔍</div>'
+      : '<div class="empty-hint">还没有备忘录～<br>记录想记住的事 ✨</div>';
+  }
+
+  function onMemoListClick(e) {
+    const card = e.target.closest(".memo-card");
+    if (!card) return;
+    const id = card.dataset.id;
+    const btn = e.target.closest(".memo-card-btn");
+    if (btn) { e.stopPropagation(); runMemoAction(id, btn.dataset.act); return; }
+    const row = e.target.closest(".memo-todo-row");
+    if (row) { e.stopPropagation(); toggleMemoTodo(id, Number(row.dataset.line)); return; }
+    if (state.memoUI.view === "list") { editMemo(id); return; }
+    if (state.memoUI.view === "archived") { runMemoAction(id, "restore"); return; }
+    toast("回收站里的备忘：↩️ 恢复 或 🗑️ 彻底删除", "");
+  }
+
+  async function toggleMemoTodo(id, lineIdx) {
+    const m = state.memos.find((x) => String(x.id) === String(id));
+    if (!m || !Number.isInteger(lineIdx)) return;
+    const lines = String(m.content || "").split("\n");
+    const l = lines[lineIdx];
+    const mm = l && l.match(MEMO_TODO_RE);
+    if (!mm) return;
+    const done = mm[1].toLowerCase() === "x";
+    lines[lineIdx] = (done ? "[ ] " : "[x] ") + mm[2];
+    await KLDB.updateMemo(m.id, { content: lines.join("\n"), noTouch: true });
+    await refreshMemoStore();
+    renderMemo();
+  }
+
+  async function runMemoAction(id, act) {
+    const m = state.memos.find((x) => String(x.id) === String(id));
+    if (!m) return;
+    try {
+      if (act === "pin") {
+        await KLDB.updateMemo(m.id, { pinned: !m.pinned, noTouch: true });
+        toast(m.pinned ? "已取消置顶" : "已置顶 📌", "success");
+      } else if (act === "archive") {
+        await KLDB.updateMemo(m.id, { archived: true, trashed: false, trashedAt: null, noTouch: true });
+        toast("已归档 📥", "success");
+      } else if (act === "restore") {
+        await KLDB.updateMemo(m.id, { archived: false, trashed: false, trashedAt: null, noTouch: true });
+        toast("已恢复 ✨", "success");
+      } else if (act === "trash") {
+        await KLDB.updateMemo(m.id, { trashed: true, archived: false, trashedAt: Date.now(), noTouch: true });
+        toast("已移到回收站", "success");
+      } else if (act === "purge") {
+        if (!confirm(`彻底删除「${m.title || "（无标题）"}」？此操作无法恢复。`)) return;
+        await KLDB.deleteMemo(m.id);
+        toast("已彻底删除", "success");
+      }
+    } catch (err) {
+      toast("操作失败：" + (err && err.message ? err.message : err), "error");
+      return;
+    }
+    await refreshMemoStore();
+    renderMemo();
+  }
+
+  async function clearMemoTrash() {
+    const n = state.memos.filter((m) => m.trashed).length;
+    if (!n) return;
+    if (!confirm(`清空回收站？将彻底删除 ${n} 条备忘，无法恢复。`)) return;
+    for (const m of state.memos.filter((x) => x.trashed)) await KLDB.deleteMemo(m.id);
+    await refreshMemoStore();
+    renderMemo();
+    toast("回收站已清空", "success");
+  }
+
+  // ---------- 新建 / 编辑 ----------
   function openMemoModal(existing = null) {
+    const curColor = (existing && MEMO_COLORS[existing.color]) ? existing.color : "pink";
+    const colorRow = Object.keys(MEMO_COLORS).map((key) => `
+      <div class="memo-color-item">
+        <button type="button" class="memo-color-dot ${key === curColor ? "on" : ""}" data-mcolor="${key}" style="background:${MEMO_COLORS[key]}" aria-label="${MEMO_COLOR_LABELS[key]}">${key === curColor ? "✓" : ""}</button>
+        <span class="memo-color-name">${MEMO_COLOR_LABELS[key]}</span>
+      </div>`).join("");
     showModal({
-      title: existing ? "编辑备忘" : "新建备忘 🌸",
+      title: existing ? "编辑备忘 ✏️" : "新建备忘 🌸",
       bodyHtml: `
         <div class="form-group">
           <label class="form-label">标题</label>
           <input type="text" id="mMemoTitle" class="form-input" value="${escapeHtml(existing?.title || "")}" placeholder="一句话标题">
         </div>
         <div class="form-group">
+          <label class="form-label">贴纸颜色</label>
+          <div class="memo-colors" id="memoColors">${colorRow}</div>
+        </div>
+        <div class="form-group">
           <label class="form-label">内容</label>
-          <textarea id="mMemoContent" class="form-textarea" placeholder="详细记录…">${escapeHtml(existing?.content || "")}</textarea>
+          <textarea id="mMemoContent" class="form-textarea" style="min-height:120px" placeholder="详细记录…">${escapeHtml(existing?.content || "")}</textarea>
+          <button type="button" class="btn-insert-todo" id="btnInsertTodo">＋ 添加待办项</button>
+          <div class="memo-tip">💡 以 <b>[ ] </b> 开头的行会变成待办清单，写 <b>[x] </b> 表示已完成；在卡片上也能直接勾选。</div>
         </div>
         <div class="form-group">
           <label class="form-label">标签（用空格或逗号分隔）</label>
           <input type="text" id="mMemoTags" class="form-input" value="${escapeHtml((existing?.tags || []).join(", "))}" placeholder="e.g. 工作, 周会">
+          ${existing ? '<div style="margin-top:8px"><button type="button" class="btn-insert-todo" id="btnCopyMemo">📋 复制全文</button></div>' : ""}
         </div>
       `,
       onConfirm: async () => {
         const title = document.getElementById("mMemoTitle").value.trim();
-        const content = document.getElementById("mMemoContent").value.trim();
+        let content = document.getElementById("mMemoContent").value;
+        content = content.replace(/\s+$/, "");
         const tagsRaw = document.getElementById("mMemoTags").value.trim();
-        const tags = tagsRaw ? tagsRaw.split(/[\s,，]+/).filter(Boolean) : [];
+        const tags = tagsRaw ? Array.from(new Set(tagsRaw.split(/[\s,，]+/).filter(Boolean))) : [];
+        const color = document.querySelector("#memoColors .memo-color-dot.on")?.dataset.mcolor || "pink";
         if (!title && !content) { toast("标题或内容总得填一个吧", "error"); return false; }
         if (existing) {
-          await KLDB.updateMemo(existing.id, { title, content, tags });
+          await KLDB.updateMemo(existing.id, { title, content, tags, color });
         } else {
-          await KLDB.addMemo({ title, content, tags });
+          await KLDB.addMemo({ title, content, tags, color });
         }
-        state.memos = await KLDB.allMemos();
+        await refreshMemoStore();
         renderMemo();
         toast(existing ? "已更新 ✨" : "已新建 ✨", "success");
         return true;
       },
-      extraBtn: existing ? { label: "删除", danger: true, onClick: async () => {
-        await KLDB.deleteMemo(existing.id);
-        state.memos = await KLDB.allMemos();
+      extraBtn: existing ? { label: "移到回收站", danger: true, onClick: async () => {
+        await KLDB.updateMemo(existing.id, { trashed: true, archived: false, trashedAt: Date.now(), noTouch: true });
+        await refreshMemoStore();
         renderMemo();
-        toast("已删除", "success");
+        toast("已移到回收站（可恢复）", "success");
         return true;
       } } : null
     });
+    // 颜色选择
+    document.getElementById("memoColors").addEventListener("click", (e) => {
+      const dot = e.target.closest(".memo-color-dot");
+      if (!dot) return;
+      document.querySelectorAll("#memoColors .memo-color-dot").forEach((d) => {
+        d.classList.toggle("on", d === dot);
+        d.innerHTML = d === dot ? "✓" : "";
+      });
+    });
+    // 插入待办行
+    document.getElementById("btnInsertTodo").addEventListener("click", () => {
+      const ta = document.getElementById("mMemoContent");
+      const add = "[ ] ";
+      const v = ta.value;
+      const idx = ta.selectionStart != null ? ta.selectionStart : v.length;
+      ta.value = v.slice(0, idx) + add + v.slice(idx);
+      ta.focus();
+      const pos = idx + add.length;
+      try { ta.setSelectionRange(pos, pos); } catch (_) { /* iOS */ }
+    });
+    // 复制全文
+    const copyBtn = document.getElementById("btnCopyMemo");
+    if (copyBtn) copyBtn.addEventListener("click", () => copyMemoText(existing.id));
   }
 
   function editMemo(id) {
     const m = state.memos.find((x) => String(x.id) === String(id));
     if (m) openMemoModal(m);
+  }
+
+  function copyMemoText(id) {
+    const m = state.memos.find((x) => String(x.id) === String(id));
+    if (!m) return;
+    const txt = ((m.title || "") + "\n" + (m.content || "")).trim();
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(txt).then(() => toast("已复制 📋", "success")).catch(() => toast("复制失败", "error"));
+    } else {
+      toast("当前浏览器不支持复制", "error");
+    }
   }
 
   // ============================================================
@@ -1419,6 +1746,8 @@
         state.memos = await KLDB.allMemos();
         state.prefs = await KLDB.allPreferences();
         syncActiveBook();
+        state.memoUI = { view: "list", q: "", tag: null, sort: "updated" };
+        document.getElementById("memoSearch").value = "";
         renderAll();
         renderBookSwitch();
         toast("已导入 ✨", "success");
@@ -1446,6 +1775,8 @@
     state.prefs = await KLDB.allPreferences();
     await reloadActiveTx();
     syncActiveBook();
+    state.memoUI = { view: "list", q: "", tag: null, sort: "updated" };
+    document.getElementById("memoSearch").value = "";
     renderAll();
     renderBookSwitch();
     toast("已清空", "success");
