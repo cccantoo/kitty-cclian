@@ -2165,6 +2165,7 @@
       renderAuthState();
       closeAuthScreen();
       toast(authMode === "register" ? "注册成功，已自动登录 🎀" : "欢迎回来，" + (r.user && r.user.username) + " ✨", "success");
+      scheduleAutoSync(600); // 登录后自动与云端合并一次
     } catch (e) {
       showAuthErr(e.message);
     } finally {
@@ -2265,13 +2266,26 @@
 
   function countRows(R) { return Object.values(R).reduce((n, arr) => n + (Array.isArray(arr) ? arr.length : 0), 0); }
 
-  async function runSyncUp() {
+  // 并发锁：自动/手动同步互不叠加
+  let _syncRunning = false;
+
+  // 登录后 / 回到前台时的“静默合并”（有变更才提示，无变更不打扰）
+  function scheduleAutoSync(delayMs) {
+    if (!loadSession()) return;
+    setTimeout(() => { if (!_syncRunning) runSyncDown({ silent: true }); }, delayMs || 800);
+  }
+
+  async function runSyncUp(opts = {}) {
+    if (_syncRunning) return;
+    _syncRunning = true;
     setSyncBusy(true);
+    const silent = !!opts.silent;
+    const note = silent ? (m) => { /* 静默 */ } : (m, t) => toast(m, t || "success");
     try {
-      if (!loadSession()) { toast("请先登录", "error"); return; }
+      if (!loadSession()) { if (!silent) toast("请先登录", "error"); return; }
       const R = await gatherCloudRows();
       const n = countRows(R);
-      if (!n) { toast("本地暂无数据可上传", "success"); return; }
+      if (!n) { if (!silent) toast("本地暂无数据可上传", "success"); return; }
       const res = await serverRequest("/api/sync/push", { method: "POST", body: { tables: R } });
       let applied = 0;
       for (const table of Object.keys(res.tables || {})) {
@@ -2281,19 +2295,24 @@
       }
       saveSyncState({ lastAt: Date.now() });
       await refreshAllFromLocal();
-      toast("已上传 " + n + " 条到云端 ✨" + (applied ? "；回写本地 " + applied + " 条" : ""), "success");
+      note("已上传 " + n + " 条到云端 ✨" + (applied ? "；回写本地 " + applied + " 条" : ""));
     } catch (e) {
-      toast("上传失败：" + e.message, "error");
+      note("上传失败：" + e.message, "error");
     } finally {
       setSyncBusy(false);
-      renderAuthState();
+      _syncRunning = false;
+      if (!silent) renderAuthState();
     }
   }
 
-  async function runSyncDown() {
+  async function runSyncDown(opts = {}) {
+    if (_syncRunning) return;
+    _syncRunning = true;
     setSyncBusy(true);
+    const silent = !!opts.silent;
+    const note = silent ? (m) => { /* 静默 */ } : (m, t) => toast(m, t || "success");
     try {
-      if (!loadSession()) { toast("请先登录", "error"); return; }
+      if (!loadSession()) { if (!silent) toast("请先登录", "error"); return; }
       // 先把本机最新上行，再做全量拉取合并
       const R = await gatherCloudRows();
       await serverRequest("/api/sync/push", { method: "POST", body: { tables: R } });
@@ -2306,12 +2325,13 @@
       }
       saveSyncState({ lastAt: Date.now() });
       await refreshAllFromLocal();
-      toast(applied ? "已合并 " + applied + " 条云端更新 ✨" : "云端与本地已一致", "success");
+      if (!silent || applied) note(applied ? "已合并 " + applied + " 条云端更新 ✨" : "云端与本地已一致");
     } catch (e) {
-      toast("拉取失败：" + e.message, "error");
+      note("拉取失败：" + e.message, "error");
     } finally {
       setSyncBusy(false);
-      renderAuthState();
+      _syncRunning = false;
+      if (!silent) renderAuthState();
     }
   }
 
@@ -2455,6 +2475,10 @@
       document.getElementById(id).addEventListener("keydown", (e) => {
         if (e.key === "Enter") doAuthSubmit();
       });
+    });
+    // 回到前台自动与云端合并（多设备改动及时下来）
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden && loadSession()) scheduleAutoSync(400);
     });
   }
 
