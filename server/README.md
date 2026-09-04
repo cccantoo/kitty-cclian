@@ -38,6 +38,31 @@ curl -s http://127.0.0.1:8300/api/me -H 'Authorization: Bearer <token>'
 curl -s -X POST http://127.0.0.1:8300/api/auth/logout -H 'Authorization: Bearer <token>'
 ```
 
+## 同步接口自测（登录后）
+
+先登录拿 token（PowerShell 示例）：
+
+```powershell
+$body = '{"username":"demo01","password":"123456"}'
+$r = Invoke-RestMethod http://127.0.0.1:8300/api/auth/login -Method Post -ContentType 'application/json' -Body $body
+$r.token        # 复制
+```
+
+拉取（首次 since=0 全量）：
+
+```powershell
+curl.exe -s "http://127.0.0.1:8300/api/sync/pull?table=books&since=0" -H "Authorization: Bearer 粘贴TOKEN"
+```
+
+推送一笔记账（amount_cents 存分；updated_at 为毫秒时间戳）：
+
+```powershell
+$push = '{"tables":{"transactions":[{"id":1,"book_id":"book-default","type":"expense","amount_cents":1250,"category_id":"cat-food-dining","account_id":"acc-alipay","note":"奶茶","ts":1750000000000,"created_at":1750000000000,"updated_at":1750000000000}]}}'
+curl.exe -s -X POST http://127.0.0.1:8300/api/sync/push -H "Authorization: Bearer 粘贴TOKEN" -H "Content-Type: application/json" -d $push
+```
+
+预期返回 `{"ok":true,"tables":{"transactions":{"accepted":1,...}}}`；再次同参数推送 `accepted` 仍为 1（幂等 upsert）。
+
 ## 生产部署（nginx 反代）
 
 1. 服务器 `git pull` 拿到 `server/`，进入后 `npm install --omit=dev`（或 `npm ci`）。

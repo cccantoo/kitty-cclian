@@ -9,6 +9,7 @@ require("./env"); // 最先加载：支持 server/.env（已有环境变量优�
 const express = require("express");
 const db = require("./db");
 const auth = require("./auth");
+const sync = require("./sync");
 
 const PORT = Number(process.env.PORT || 8300);
 const HOST = process.env.BIND_HOST || "127.0.0.1";
@@ -86,7 +87,8 @@ app.get("/api/me", authRequired, (req, res) => {
   res.json({ user: req.user });
 });
 
-// M2 将在此处挂载 /api/sync/*（push / pull）
+// M2：数据同步（push / pull / purge），全部需登录
+sync.registerSyncRoutes(app, authRequired);
 
 app.use((req, res) => {
   res.status(404).json({ error: "Not Found: " + req.path });

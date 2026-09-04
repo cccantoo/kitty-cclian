@@ -22,3 +22,6 @@ __pycache__/
 
 # 本地工作记忆（不同步仓库）
 .workbuddy/
+
+# 后端本地配置（含密码，不入库）
+server/.env
