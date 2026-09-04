@@ -1417,3 +1417,121 @@ input { font-family: inherit; }
   flex: 0 1 150px;
   font-size: 13px;
 }
+
+/* ============================================================
+ * 登录 / 注册（Kitty 云）+ 抽屉账号区
+ * ========================================================== */
+.acct-box {
+  background: #fff;
+  border-radius: var(--r-md);
+  padding: 12px;
+  box-shadow: var(--shadow-1);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.acct-state { font-size: 12px; color: var(--c-text-muted); line-height: 1.5; }
+.acct-state b { color: var(--c-primary); }
+.acct-actions { display: flex; gap: 8px; }
+.btn-acct {
+  flex: 1;
+  padding: 9px;
+  border-radius: var(--r-md);
+  font-size: 13px;
+  font-weight: 600;
+  background: linear-gradient(135deg, var(--c-primary), var(--c-accent));
+  color: #fff;
+}
+.btn-acct.ghost { background: var(--c-bg-soft); color: var(--c-text-muted); font-weight: 500; }
+
+.auth-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 125;
+  background: var(--c-bg);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.auth-screen.open { display: flex; }
+.auth-panel {
+  width: min(92vw, 420px);
+  background: #fff;
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-3);
+  padding: 18px 20px calc(20px + env(safe-area-inset-bottom, 0px));
+  position: relative;
+  max-height: 88vh;
+  overflow-y: auto;
+}
+.auth-back {
+  position: absolute;
+  top: 14px; left: 14px;
+  font-size: 13px;
+  color: var(--c-text-muted);
+  background: var(--c-bg-soft);
+  border-radius: var(--r-pill);
+  padding: 5px 12px;
+  font-weight: 600;
+}
+.auth-hero { text-align: center; padding: 10px 0 14px; }
+.auth-logo {
+  display: inline-flex;
+  width: 52px; height: 52px;
+  align-items: center;
+  justify-content: center;
+  font-size: 30px;
+  background: var(--c-bg-soft);
+  border-radius: 18px;
+}
+.auth-hero h2 { margin: 8px 0 4px; font-size: 20px; color: var(--c-text); }
+.auth-sub { margin: 0; font-size: 12px; color: var(--c-text-muted); line-height: 1.5; }
+.auth-tabs {
+  display: flex;
+  background: var(--c-bg-soft);
+  border-radius: var(--r-pill);
+  padding: 3px;
+  margin-bottom: 14px;
+}
+.auth-tab {
+  flex: 1;
+  padding: 8px;
+  border-radius: var(--r-pill);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-text-muted);
+}
+.auth-tab.on { background: var(--c-primary); color: #fff; }
+.auth-form { display: flex; flex-direction: column; gap: 10px; }
+.auth-input {
+  width: 100%;
+  padding: 11px 14px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-md);
+  background: var(--c-bg);
+  font-size: 15px;
+  outline: none;
+  color: var(--c-text);
+}
+.auth-input:focus { border-color: var(--c-primary); }
+.auth-err {
+  font-size: 12px;
+  color: var(--c-danger);
+  background: var(--c-bg-soft);
+  border-radius: var(--r-sm);
+  padding: 6px 10px;
+  line-height: 1.5;
+}
+.auth-submit {
+  margin-top: 4px;
+  padding: 12px;
+  border-radius: var(--r-md);
+  background: linear-gradient(135deg, var(--c-primary), var(--c-accent));
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  box-shadow: var(--shadow-2);
+}
+.auth-submit:disabled { opacity: 0.6; }
+.auth-note { margin-top: 12px; font-size: 11px; color: var(--c-text-muted); text-align: center; line-height: 1.6; }

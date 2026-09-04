@@ -135,6 +135,8 @@
       setupLedger();
       setupBooks();
       setupMemo();
+      setupAuth();
+      renderAuthState();
       setupAISettings();
       renderAll();
 
@@ -2043,6 +2045,169 @@
         btn.disabled = false;
         btn.textContent = "🔗 测试连接";
       }
+    });
+  }
+
+  // ============================================================
+  // Kitty 云：账号会话 + 登录/注册（M3）
+  //  - 会话存 localStorage.kitty_session（token + 用户）
+  //  - API 地址：生产同源 /api；本地开发默认 http://127.0.0.1:8300，
+  //    手机局域网联调可在控制台执行 localStorage.setItem('kitty_api_base','http://<电脑IP>:8300')
+  // ============================================================
+  const AUTH_KEY = "kitty_session";
+  let authMode = "login"; // login | register
+
+  function apiRoot() {
+    const saved = localStorage.getItem("kitty_api_base");
+    if (saved) return saved.replace(/\/+$/, "");
+    const h = location.hostname;
+    return (h === "localhost" || h === "127.0.0.1") ? "http://127.0.0.1:8300" : "";
+  }
+
+  function loadSession() {
+    try { return JSON.parse(localStorage.getItem(AUTH_KEY) || "null"); } catch (_) { return null; }
+  }
+  function saveSession(s) { localStorage.setItem(AUTH_KEY, JSON.stringify(s)); }
+  function clearSession() { localStorage.removeItem(AUTH_KEY); }
+
+  // 通用服务端请求（带超时 & Bearer；401 且原带 token → 清会话提示重登）
+  async function serverRequest(path, { method = "GET", body } = {}) {
+    const sess = loadSession();
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 12000);
+    let resp;
+    try {
+      resp = await fetch(apiRoot() + path, {
+        method,
+        headers: Object.assign(
+          { "Content-Type": "application/json" },
+          sess && sess.token ? { Authorization: "Bearer " + sess.token } : {}
+        ),
+        body: body ? JSON.stringify(body) : undefined,
+        signal: ctrl.signal
+      });
+    } catch (e) {
+      throw new Error(e.name === "AbortError" ? "请求超时，请确认服务端已启动" : "网络错误：" + e.message);
+    } finally {
+      clearTimeout(timer);
+    }
+    let data = null;
+    try { data = await resp.json(); } catch (_) { /* 非 JSON */ }
+    if (resp.status === 401 && sess && sess.token) {
+      clearSession();
+      renderAuthState();
+      toast("登录已过期，请重新登录", "error");
+    }
+    if (!resp.ok) {
+      throw new Error((data && data.error) || "请求失败（HTTP " + resp.status + "）");
+    }
+    return data;
+  }
+
+  function openAuthScreen() {
+    setAuthMode("login");
+    document.getElementById("aUsername").value = "";
+    document.getElementById("aPassword").value = "";
+    document.getElementById("aPassword2").value = "";
+    showAuthErr("");
+    const note = document.getElementById("authNote");
+    note.textContent = apiRoot()
+      ? "本地联调模式 · API：" + apiRoot() + "\n👀 首次使用点「注册」创建账号"
+      : "👀 首次使用点「注册」创建账号；数据默认仍留在本机，之后可手动备份上云";
+    document.getElementById("authScreen").classList.add("open");
+    document.getElementById("authScreen").setAttribute("aria-hidden", "false");
+    setTimeout(() => document.getElementById("aUsername").focus(), 60);
+  }
+  function closeAuthScreen() {
+    const el = document.getElementById("authScreen");
+    el.classList.remove("open");
+    el.setAttribute("aria-hidden", "true");
+  }
+  function showAuthErr(msg) {
+    const el = document.getElementById("aErr");
+    el.textContent = msg;
+    el.classList.toggle("hidden", !msg);
+  }
+
+  function setAuthMode(mode) {
+    authMode = mode === "register" ? "register" : "login";
+    document.querySelectorAll(".auth-tab").forEach((b) => b.classList.toggle("on", b.dataset.atab === authMode));
+    const isReg = authMode === "register";
+    document.getElementById("aPassword2").classList.toggle("hidden", !isReg);
+    document.getElementById("aPassword").autocomplete = isReg ? "new-password" : "current-password";
+    document.getElementById("btnAuthSubmit").textContent = isReg ? "注 册" : "登 录";
+    document.getElementById("authSub").textContent = isReg
+      ? "注册后将自动登录；数据可备份到服务器、多设备同步"
+      : "登录后，账本与备忘可备份到服务器、多设备同步";
+  }
+
+  async function doAuthSubmit() {
+    const btn = document.getElementById("btnAuthSubmit");
+    const username = document.getElementById("aUsername").value.trim().toLowerCase();
+    const password = document.getElementById("aPassword").value;
+    const password2 = document.getElementById("aPassword2").value;
+    showAuthErr("");
+    if (!/^[a-z0-9_]{3,20}$/.test(username)) {
+      return showAuthErr("用户名需为 3-20 位小写字母 / 数字 / 下划线");
+    }
+    if (!password || password.length < 6) {
+      return showAuthErr("密码至少 6 位");
+    }
+    if (authMode === "register" && password !== password2) {
+      return showAuthErr("两次输入的密码不一致");
+    }
+    btn.disabled = true;
+    const old = btn.textContent;
+    btn.textContent = "提交中…";
+    try {
+      const r = await serverRequest("/api/auth/" + authMode, { method: "POST", body: { username, password } });
+      saveSession({ token: r.token, user: r.user, expiresAt: r.expiresAt, savedAt: Date.now() });
+      renderAuthState();
+      closeAuthScreen();
+      toast(authMode === "register" ? "注册成功，已自动登录 🎀" : "欢迎回来，" + (r.user && r.user.username) + " ✨", "success");
+    } catch (e) {
+      showAuthErr(e.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = old;
+    }
+  }
+
+  async function doLogout() {
+    try { await serverRequest("/api/auth/logout", { method: "POST" }); } catch (_) { /* 服务端不可达也照常本机登出 */ }
+    clearSession();
+    renderAuthState();
+    toast("已退出登录", "success");
+  }
+
+  // 抽屉「账号与云端」区域状态
+  function renderAuthState() {
+    const box = document.getElementById("acctBox");
+    if (!box) return;
+    const stateEl = document.getElementById("acctState");
+    const actions = box.querySelector(".acct-actions");
+    const s = loadSession();
+    if (s && s.token && s.user) {
+      stateEl.innerHTML = "已登录：<b>" + escapeHtml(s.user.username || "") + "</b><br>数据同步功能将在下阶段开放";
+      actions.innerHTML = '<button class="btn-acct ghost" id="btnAuthLogout">退出登录</button>';
+      document.getElementById("btnAuthLogout").addEventListener("click", doLogout);
+    } else {
+      stateEl.textContent = "未登录 · 数据仅保存在本机";
+      actions.innerHTML = '<button class="btn-acct" id="btnAuthOpen">登录 / 注册</button>';
+      document.getElementById("btnAuthOpen").addEventListener("click", openAuthScreen);
+    }
+  }
+
+  function setupAuth() {
+    document.getElementById("btnAuthClose").addEventListener("click", closeAuthScreen);
+    document.querySelectorAll(".auth-tab").forEach((b) => {
+      b.addEventListener("click", () => setAuthMode(b.dataset.atab));
+    });
+    document.getElementById("btnAuthSubmit").addEventListener("click", doAuthSubmit);
+    ["aUsername", "aPassword", "aPassword2"].forEach((id) => {
+      document.getElementById(id).addEventListener("keydown", (e) => {
+        if (e.key === "Enter") doAuthSubmit();
+      });
     });
   }
 
