@@ -1432,7 +1432,8 @@ input { font-family: inherit; }
 }
 .acct-state { font-size: 12px; color: var(--c-text-muted); line-height: 1.5; }
 .acct-state b { color: var(--c-primary); }
-.acct-actions { display: flex; gap: 8px; }
+.acct-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.acct-actions .btn-acct { flex: 1 1 calc(50% - 4px); }
 .btn-acct {
   flex: 1;
   padding: 9px;

@@ -1898,14 +1898,16 @@
     };
     input.click();
   }
-  async function clearAllData() {
-    if (!confirm("⚠️ 这会清空所有记账、备忘录、偏好、账本与预算。确定吗？")) return;
+  // 彻底清空本机业务数据（不发云、不询问；供“清空本机数据”与换账号隔离用）
+  async function wipeLocalAll() {
     await KLDB.clear(KLDB.STORE.TX);
     await KLDB.clear(KLDB.STORE.MEMO);
     await KLDB.clear(KLDB.STORE.PREF);
-    // 移除账本 / 活动账本 / 全部预算 / 旧账户存储 → 重新 init 出全新默认账本
+    await KLDB.clear(KLDB.STORE.CAT);
     for (const key of Object.keys(localStorage)) {
-      if (key === "kitty_books" || key === "kitty_active_book" || key === "kitty_accounts" || key.startsWith("kitty_budgets")) {
+      if (key === "kitty_books" || key === "kitty_active_book" || key === "kitty_accounts" ||
+          key === "kitty_local_owner" || key === "kitty_sync_state" ||
+          key.startsWith("kitty_budgets") || key.startsWith("kitty_tombs_")) {
         localStorage.removeItem(key);
       }
     }
@@ -1913,6 +1915,7 @@
     state.books = KLDB.books();
     state.activeBook = KLDB.currentBook();
     KLDB.setActiveBookId(state.activeBook.id);
+    state.categories = await KLDB.allCategories();
     state.prefs = await KLDB.allPreferences();
     await reloadActiveTx();
     syncActiveBook();
@@ -1920,7 +1923,18 @@
     document.getElementById("memoSearch").value = "";
     renderAll();
     renderBookSwitch();
-    toast("已清空", "success");
+  }
+
+  async function clearAllData() {
+    if (loadSession()) {
+      // 已登录：清空本机需连登出，避免云端数据被自动拉回（“看起来没清掉”）
+      if (!confirm("⚠️ 将清空本机上的记账、备忘、偏好、账本与预算，并退出登录。\n\n云端账号里的数据不受影响，重新登录可恢复。确定吗？")) return;
+      await doWipeFlow();
+    } else {
+      if (!confirm("⚠️ 这会清空所有记账、备忘录、偏好、账本与预算。确定吗？")) return;
+      await wipeLocalAll();
+      toast("已清空", "success");
+    }
   }
 
   // ============================================================
@@ -2089,6 +2103,25 @@
   //    手机局域网联调可在控制台执行 localStorage.setItem('kitty_api_base','http://<电脑IP>:8300')
   // ============================================================
   const AUTH_KEY = "kitty_session";
+  const OWNER_KEY = "kitty_local_owner"; // 本机数据归属的账号（换号隔离的关键）
+
+  function getLocalOwner() {
+    try {
+      const v = JSON.parse(localStorage.getItem(OWNER_KEY) || "null");
+      return v && v.id ? v : null;
+    } catch (_) { return null; }
+  }
+  function setLocalOwner(user) {
+    localStorage.setItem(OWNER_KEY, JSON.stringify({
+      id: user && user.id, username: (user && user.username) || ""
+    }));
+  }
+  // 本机是否存在「真正业务数据」（排除默认空账本）
+  function hasBusinessLocal() {
+    return !!(state.txs && state.txs.length) || !!(state.memos && state.memos.length) ||
+      !!((state.books || []).length > 1) ||
+      !!((state.prefs || []).some((p) => p.key && !String(p.key).startsWith("system.")));
+  }
   let authMode = "login"; // login | register
 
   function apiRoot() {
@@ -2198,6 +2231,29 @@
       saveSession({ token: r.token, user: r.user, expiresAt: r.expiresAt, savedAt: Date.now() });
       renderAuthState();
       closeAuthScreen();
+      // —— 换账号隔离：本机数据属于上一个账号时，必须先清空再恢复新账号云端 ——
+      const prevOwner = getLocalOwner();
+      const newUid = String(r.user && r.user.id);
+      if (prevOwner && String(prevOwner.id) !== newUid && hasBusinessLocal()) {
+        const ok = confirm(
+          "本机还保存着账号「" + (prevOwner.username || prevOwner.id) + "」的数据，不能直接切到「" + r.user.username + "」。\n\n" +
+          "继续将：① 清空本机旧数据 → ② 从云端恢复「" + r.user.username + "」自己的数据。\n\n继续吗？"
+        );
+        if (!ok) {
+          try { await serverRequest("/api/auth/logout", { method: "POST" }); } catch (_) { /* 忽略 */ }
+          clearSession();
+          renderAuthState();
+          toast("已取消切换：本地旧数据未动，可换回原账号登录恢复", "error");
+          return;
+        }
+        await wipeLocalAll();
+        setLocalOwner(r.user);
+        toast("已切换到「" + r.user.username + "」，正在恢复其云端数据…", "success");
+        await runSyncDown({ skipPush: true }); // 本地已清空，只从云端拉
+        return;
+      }
+      // 首次登录（本地无主人）或同账号：把本地数据归属当前账号并合并云端
+      setLocalOwner(r.user);
       toast(authMode === "register" ? "注册成功，已自动登录 🎀" : "欢迎回来，" + (r.user && r.user.username) + " ✨", "success");
       scheduleAutoSync(600); // 登录后自动与云端合并一次
     } catch (e) {
@@ -2212,7 +2268,22 @@
     try { await serverRequest("/api/auth/logout", { method: "POST" }); } catch (_) { /* 服务端不可达也照常本机登出 */ }
     clearSession();
     renderAuthState();
-    toast("已退出登录", "success");
+    toast("已退出登录 · 本机数据仍保留（共享设备请点「清空本机」）", "success");
+  }
+
+  // 清空本机核心流程：静默上传 → 清空本地(含数据主人标记) → 登出，防云端自动拉回
+  async function doWipeFlow() {
+    try { if (loadSession()) await runSyncUp({ silent: true }); } catch (_) { /* 上传失败不阻断清空 */ }
+    await wipeLocalAll();
+    try { if (loadSession()) await serverRequest("/api/auth/logout", { method: "POST" }); } catch (_) { /* 忽略 */ }
+    clearSession();
+    renderAuthState();
+    toast("本机数据已清空并退出登录", "success");
+  }
+
+  async function doWipeLocal() {
+    if (!confirm("⚠️ 将清空本机上的账本、交易、备忘、偏好、预算，无法在本机找回。\n\n如需保留，请先点「📤 上传云端」再清空。\n\n确定清空吗？")) return;
+    await doWipeFlow();
   }
 
   // 抽屉「账号与云端」区域状态
@@ -2225,13 +2296,16 @@
     if (s && s.token && s.user) {
       const sync = loadSyncState();
       stateEl.innerHTML = "已登录：<b>" + escapeHtml(s.user.username || "") + "</b>" +
-        (sync && sync.lastAt ? '<br>上次同步 ' + new Date(sync.lastAt).toLocaleTimeString("zh-CN", { hour12: false }) : "");
+        (sync && sync.lastAt ? '<br>上次同步 ' + new Date(sync.lastAt).toLocaleTimeString("zh-CN", { hour12: false }) : "") +
+        '<br><span style="font-size:11px;opacity:.8">共享设备退出后请点「清空本机」防泄露</span>';
       actions.innerHTML = `
         <button class="btn-acct" id="btnSyncUp">📤 上传云端</button>
         <button class="btn-acct ghost" id="btnSyncDown">📥 拉取合并</button>
+        <button class="btn-acct ghost" id="btnAcctWipe" style="color:var(--c-danger)">清空本机</button>
         <button class="btn-acct ghost" id="btnAuthLogout" title="退出登录">退出</button>`;
       document.getElementById("btnSyncUp").addEventListener("click", () => runSyncUp());
       document.getElementById("btnSyncDown").addEventListener("click", () => runSyncDown());
+      document.getElementById("btnAcctWipe").addEventListener("click", doWipeLocal);
       document.getElementById("btnAuthLogout").addEventListener("click", doLogout);
     } else {
       stateEl.textContent = "未登录 · 数据仅保存在本机";
@@ -2358,12 +2432,15 @@
     _syncRunning = true;
     setSyncBusy(true);
     const silent = !!opts.silent;
+    const skipPush = !!opts.skipPush; // 换账号已清空本地时：只拉不推
     const note = silent ? (m) => { /* 静默 */ } : (m, t) => toast(m, t || "success");
     try {
       if (!loadSession()) { if (!silent) toast("请先登录", "error"); return; }
-      // 先把本机最新上行，再做全量拉取合并
-      const R = await gatherCloudRows();
-      await serverRequest("/api/sync/push", { method: "POST", body: { tables: R } });
+      if (!skipPush) {
+        // 先把本机最新上行，再做全量拉取合并
+        const R = await gatherCloudRows();
+        await serverRequest("/api/sync/push", { method: "POST", body: { tables: R } });
+      }
       let applied = 0;
       for (const table of REMOTE_TABLES) {
         const res = await serverRequest("/api/sync/pull?table=" + table + "&since=0&limit=1000");
