@@ -1305,15 +1305,35 @@
     }
     const tags = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 12);
     const sel = state.memoUI.tag;
+    if (tags.length === 0) {
+      // 还没有任何标签时给出引导，避免"看不出这个功能"
+      box.innerHTML = '<span class="memo-chips-hint">🏷 尚无标签 · 编辑备忘时在「标签」框输入回车，就能按主题筛选</span>';
+      return;
+    }
     let html = `<button type="button" class="memo-chip ${!sel ? "on" : ""}" data-tag="">全部</button>`;
     html += tags.map(([t, c]) => `<button type="button" class="memo-chip ${sel === t ? "on" : ""}" data-tag="${escapeHtml(t)}">#${escapeHtml(t)} ${c}</button>`).join("");
     box.innerHTML = html;
     box.querySelectorAll(".memo-chip").forEach((chip) => {
       chip.addEventListener("click", () => {
-        state.memoUI.tag = chip.dataset.tag || null;
+        const t = chip.dataset.tag || null;
+        // 再次点击已选中的标签 = 取消筛选
+        state.memoUI.tag = (t && t === sel) ? null : t;
         renderMemo();
+        if (t && state.memoUI.tag === t) toast("已筛选：#" + t, "success");
       });
     });
+  }
+
+  // 点卡片上的 #标签 → 回到主列表并按该标签筛选
+  function gotoMemoTag(tag) {
+    state.memoUI.view = "list";
+    state.memoUI.tag = tag || null;
+    state.memoUI.q = "";
+    document.getElementById("memoSearch").value = "";
+    document.getElementById("memoSubbar").classList.remove("hidden");
+    document.getElementById("memoSubhead").classList.add("hidden");
+    renderMemo();
+    toast(tag ? "已筛选：#" + tag : "已显示全部", "success");
   }
 
   function memoCardHtml(m) {
@@ -1343,7 +1363,8 @@
       ? showLines.join("") + (more ? '<div class="memo-line dim">…</div>' : "")
       : '<div class="memo-line dim">（无正文，点卡片补一句吧）</div>';
 
-    const tagsHtml = (m.tags || []).map((t) => `<span class="memo-tag">${escapeHtml(t)}</span>`).join("");
+    // 卡片 meta 的 #标签可点击：点一下即按该标签筛选
+    const tagsHtml = (m.tags || []).map((t) => `<span class="memo-tag memo-tag-link" data-taglink="${escapeHtml(t)}">#${escapeHtml(t)}</span>`).join("");
     const statusHtml = v === "archived"
       ? '<span class="memo-tag arch-tag">已归档</span>'
       : v === "trash"
@@ -1400,6 +1421,8 @@
     const id = card.dataset.id;
     const btn = e.target.closest(".memo-card-btn");
     if (btn) { e.stopPropagation(); runMemoAction(id, btn.dataset.act); return; }
+    const tagLink = e.target.closest("[data-taglink]");
+    if (tagLink) { e.stopPropagation(); gotoMemoTag(tagLink.dataset.taglink); return; }
     const row = e.target.closest(".memo-todo-row");
     if (row) { e.stopPropagation(); toggleMemoTodo(id, Number(row.dataset.line)); return; }
     if (state.memoUI.view === "list") { editMemo(id); return; }
@@ -1473,6 +1496,7 @@
     };
     document.getElementById("meTitle").value = (existing && existing.title) || "";
     document.getElementById("meContent").value = (existing && existing.content) || "";
+    document.getElementById("meTagInput").value = "";
     document.getElementById("meHeadTitle").textContent = existing ? "编辑备忘" : "新建备忘";
     renderMeColors();
     renderMeTags();
@@ -1508,23 +1532,22 @@
     const row = document.getElementById("meTags");
     if (!row || !memoEditing) return;
     row.innerHTML = memoEditing.tags.map((t) => `
-      <span class="me-tag-chip">#${escapeHtml(t)}<button type="button" class="me-tag-x" data-tag="${escapeHtml(t)}">✕</button></span>`).join("")
-      || '<span class="me-count" style="flex:none">暂无标签</span>';
-    const add = document.getElementById("meTagAdd");
-    add.classList.toggle("on", memoEditing.tags.length > 0);
+      <span class="me-tag-chip">#${escapeHtml(t)}<button type="button" class="me-tag-x" data-tag="${escapeHtml(t)}">✕</button></span>`).join("");
   }
 
   function commitMeTag() {
     const inp = document.getElementById("meTagInput");
     const raw = (inp.value || "").trim();
-    if (!raw) return;
-    const adds = Array.from(new Set(raw.split(/[\s,，]+/).filter(Boolean)))
-      .slice(0, 8 - memoEditing.tags.length);
+    if (!raw) { inp.value = ""; return; }
+    const space = Math.max(0, 8 - memoEditing.tags.length);
+    const adds = Array.from(new Set(raw.split(/[\s,，]+/).filter(Boolean))).slice(0, space);
+    if (space === 0) { toast("最多 8 个标签哦", "error"); inp.value = ""; return; }
     if (adds.length) {
-      memoEditing.tags = memoEditing.tags.concat(adds).slice(0, 8);
+      memoEditing.tags = memoEditing.tags.concat(adds);
       memoEditing.dirty = true;
       inp.value = "";
       renderMeTags();
+      inp.focus();
     }
   }
 
@@ -1616,18 +1639,14 @@
       memoEditing.dirty = true;
       renderMeColors();
     });
-    // 标签：开关输入框
-    document.getElementById("meTagAdd").addEventListener("click", () => {
-      const inp = document.getElementById("meTagInput");
-      inp.style.display = inp.style.display === "none" ? "" : "none";
-      if (inp.style.display !== "none") inp.focus();
-    });
+    // 标签：常显输入框，回车/失焦提交
     const tagInput = document.getElementById("meTagInput");
+    tagInput.addEventListener("click", () => { if (memoEditing) tagInput.focus(); });
     tagInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") { e.preventDefault(); commitMeTag(); }
-      if (e.key === "Escape") { tagInput.style.display = "none"; tagInput.value = ""; }
+      if (e.key === "Escape") { tagInput.value = ""; tagInput.blur(); }
     });
-    tagInput.addEventListener("blur", () => { if (!tagInput.value.trim()) { tagInput.style.display = "none"; } });
+    tagInput.addEventListener("blur", () => commitMeTag());
     // 删除标签 chip
     document.getElementById("meTags").addEventListener("click", (e) => {
       const x = e.target.closest(".me-tag-x");

@@ -1394,3 +1394,26 @@ input { font-family: inherit; }
   font-size: 11px;
   color: var(--c-text-muted);
 }
+
+/* ---- 标签可见性增强 ---- */
+.memo-chips-hint {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--c-text-muted);
+  background: var(--c-bg-soft);
+  border-radius: var(--r-pill);
+  padding: 5px 12px;
+  white-space: nowrap;
+}
+.memo-tag-link {
+  cursor: pointer;
+}
+.memo-tag-link:active {
+  background: var(--c-primary);
+  color: #fff;
+}
+.me-tags-row .me-label { flex-shrink: 0; }
+.me-tags-row .me-tag-input {
+  flex: 0 1 150px;
+  font-size: 13px;
+}
