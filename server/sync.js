@@ -45,6 +45,11 @@ const META = {
   preferences: {
     keyCols: ["pkey"],
     cols: ["pkey", "pvalue", "source", "created_at", "updated_at", "deleted_at"]
+  },
+  messages: {
+    keyCols: ["id"],
+    cols: ["id", "role", "content", "tool_cards_json", "kind", "ts",
+           "created_at", "updated_at", "deleted_at"]
   }
 };
 

@@ -438,9 +438,12 @@
     return this.del(STORE.MEMO, id);
   }
 
-  // messages
+  // messages（聊天记录，云同步用 allMessages）
   async function addMessage({ role, content, toolCalls, kind }) {
     return this.add(STORE.MSG, { role, content, toolCalls: toolCalls || null, kind: kind || "text", ts: Date.now() });
+  }
+  async function allMessages() {
+    return (await this.all(STORE.MSG)).sort((a, b) => a.ts - b.ts);
   }
   async function recentMessages(limit = 40) {
     const list = await this.all(STORE.MSG);
@@ -456,7 +459,7 @@
     listTransactions, addTransaction, updateTransaction, deleteTransaction,
     allCategories, addCategory, allPreferences, addPreference, updatePreference, deletePreference,
     allMemos, addMemo, updateMemo, deleteMemo,
-    addMessage, recentMessages, clearMessages,
+    addMessage, allMessages, recentMessages, clearMessages,
     // 多账本
     DEFAULT_BOOK_ID,
     cloneDefaultAccounts,

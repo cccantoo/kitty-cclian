@@ -1898,12 +1898,14 @@
     };
     input.click();
   }
-  // 彻底清空本机业务数据（不发云、不询问；供“清空本机数据”与换账号隔离用）
+  // 彻底清空本机业务数据（不发云、不询问；供登出清空与换账号隔离用）
   async function wipeLocalAll() {
     await KLDB.clear(KLDB.STORE.TX);
     await KLDB.clear(KLDB.STORE.MEMO);
     await KLDB.clear(KLDB.STORE.PREF);
     await KLDB.clear(KLDB.STORE.CAT);
+    await KLDB.clear(KLDB.STORE.MSG); // 聊天记录也已上云：登出即清，重登可从云端恢复
+    state.chatHistory = [];
     for (const key of Object.keys(localStorage)) {
       if (key === "kitty_books" || key === "kitty_active_book" || key === "kitty_accounts" ||
           key === "kitty_local_owner" || key === "kitty_sync_state" ||
@@ -1923,6 +1925,7 @@
     document.getElementById("memoSearch").value = "";
     renderAll();
     renderBookSwitch();
+    renderChatHistory();
   }
 
   async function clearAllData() {
@@ -1949,11 +1952,14 @@
     renderPrefsCount();
   }
 
+  // 会话列表整体重建（幂等，可重复调用；欢迎语只保留一份）
   function renderChatHistory() {
     const list = document.getElementById("chatList");
-    // 清掉占位欢迎（第一条预设）
-    const first = list.querySelector(".msg-bot");
-    const welcome = first ? first.outerHTML : "";
+    if (!list) return;
+    const w = list.querySelector(":scope > .chat-msg.msg-bot");
+    const welcomeHtml = w ? w.outerHTML :
+      '<div class="chat-msg msg-bot"><div class="msg-avatar"><img class="msg-avatar-img" src="./icons/kitty/dessert/7_41_apple.png" alt="Kitty"></div><div class="msg-bubble"><div class="msg-text">嗨～我是 Kitty 记账小助手 🎀 跟我说「今天花了 35 买奶茶」就能自动记账哦～</div><div class="msg-meta">试试问我：「这个月我最大笔开销是什么？」</div></div></div>';
+    list.innerHTML = welcomeHtml;
 
     state.chatHistory.forEach((m) => {
       if (m.role === "tool") return; // 跳过工具消息
@@ -1966,10 +1972,6 @@
       });
     });
     list.scrollTop = list.scrollHeight;
-    // 如果没有历史消息，保留欢迎语
-    if (state.chatHistory.length === 0 && welcome) {
-      list.innerHTML = welcome;
-    }
   }
 
   function renderMessage(m, append = false) {
@@ -2334,7 +2336,7 @@
   }
 
   // 账本等文本主键的本地记录没有 updated_at：拉取只补缺失，不覆盖本机已存在内容
-  const REMOTE_TABLES = ["books", "accounts", "categories", "transactions", "memos", "budgets", "preferences"];
+  const REMOTE_TABLES = ["books", "accounts", "categories", "transactions", "memos", "budgets", "preferences", "messages"];
 
   function yuanToCents(v) { return Math.round((Number(v) || 0) * 100); }
   function safeJson(s, def) { try { const v = JSON.parse(s); return v === null || v === undefined ? def : v; } catch (_) { return def; } }
@@ -2342,7 +2344,7 @@
   // ---- 装配本地全量行（含墓碑合并）----
   async function gatherCloudRows() {
     const now = Date.now();
-    const R = { books: [], accounts: [], categories: [], transactions: [], memos: [], preferences: [], budgets: [] };
+    const R = { books: [], accounts: [], categories: [], transactions: [], memos: [], preferences: [], budgets: [], messages: [] };
     const books = KLDB.books();
     for (const b of books) {
       R.books.push({ id: b.id, name: b.name || "账本", icon: b.icon || "🐱", is_default: b.isDefault ? 1 : 0, created_at: b.createdAt || now, updated_at: now, deleted_at: null });
@@ -2366,6 +2368,15 @@
     for (const p of state.prefs || []) {
       if (!p.key || String(p.key).startsWith("system.")) continue;
       R.preferences.push({ pkey: p.key, pvalue: String(p.value ?? ""), source: p.source || "manual", created_at: p.ts || now, updated_at: p.ts || now, deleted_at: null });
+    }
+    // 聊天记录（已上云：登出清空后可完整恢复对话）
+    for (const msg of await KLDB.allMessages()) {
+      R.messages.push({
+        id: msg.id, role: msg.role || "user", content: msg.content || "",
+        tool_cards_json: msg.toolCalls ? JSON.stringify(msg.toolCalls) : null,
+        kind: msg.kind || "text", ts: msg.ts || now,
+        created_at: msg.ts || now, updated_at: msg.ts || now, deleted_at: null
+      });
     }
     // 墓碑合并：备忘录 / 偏好 的物理删除
     R.memos = R.memos.concat(KLDB.listTombs("memos", TOMB_KEEP_MS));
@@ -2490,6 +2501,20 @@
         await KLDB.put(KLDB.STORE.MEMO, rec);
         return true;
       }
+      if (table === "messages") {
+        if (row.deleted_at) return false; // 聊天记录无单条删除
+        const id = Number(row.id);
+        const loc = await KLDB.get(KLDB.STORE.MSG, id);
+        const ts = Number(row.ts || row.updated_at || 0);
+        if (loc && ts <= Number(loc.ts || 0)) return false;
+        const rec = {
+          id, role: row.role || "user", content: row.content || "",
+          toolCalls: row.tool_cards_json ? safeJson(row.tool_cards_json, null) : null,
+          kind: row.kind || "text", ts
+        };
+        await KLDB.put(KLDB.STORE.MSG, rec);
+        return true;
+      }
       if (table === "transactions") {
         const id = Number(row.id);
         const loc = state.txs.find((t) => Number(t.id) === id);
@@ -2609,6 +2634,8 @@
     state.memos = await KLDB.allMemos();
     await reloadActiveTx();
     syncActiveBook();
+    state.chatHistory = await KLDB.recentMessages(40); // 聊天记录随同步恢复
+    renderChatHistory();
     renderAll();
     renderBookSwitch();
   }

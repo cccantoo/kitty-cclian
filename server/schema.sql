@@ -127,3 +127,18 @@ CREATE TABLE IF NOT EXISTS preferences (
   UNIQUE KEY uk_prefs (user_id, pkey),
   KEY idx_prefs_updated (user_id, updated_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS messages (
+  id              BIGINT NOT NULL,
+  user_id         BIGINT UNSIGNED NOT NULL,
+  role            VARCHAR(16)  NOT NULL DEFAULT 'user',
+  content         MEDIUMTEXT NULL,
+  tool_cards_json MEDIUMTEXT NULL,
+  kind            VARCHAR(16)  NOT NULL DEFAULT 'text',
+  ts              BIGINT NOT NULL,
+  created_at      BIGINT NOT NULL,
+  updated_at      BIGINT NOT NULL,
+  deleted_at      BIGINT NULL,
+  PRIMARY KEY (user_id, id),
+  KEY idx_messages_updated (user_id, updated_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
