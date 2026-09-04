@@ -2264,26 +2264,29 @@
     }
   }
 
+  // 退出登录 = 先备份到云端 → 清空本机 → 登出（数据已在云端，重登可恢复）
   async function doLogout() {
-    try { await serverRequest("/api/auth/logout", { method: "POST" }); } catch (_) { /* 服务端不可达也照常本机登出 */ }
-    clearSession();
-    renderAuthState();
-    toast("已退出登录 · 本机数据仍保留（共享设备请点「清空本机」）", "success");
+    if (_syncRunning) { toast("正在同步，请稍候再试", "error"); return; }
+    if (!confirm("退出将清空本机数据（会先上传到云端备份，重新登录即可恢复）。\n\n确定退出吗？")) return;
+    await doWipeFlow();
   }
 
-  // 清空本机核心流程：静默上传 → 清空本地(含数据主人标记) → 登出，防云端自动拉回
+  // 清空本机核心流程：上传（成功才继续）→ 清空本地(含数据主人标记) → 登出，防云端自动拉回
   async function doWipeFlow() {
-    try { if (loadSession()) await runSyncUp({ silent: true }); } catch (_) { /* 上传失败不阻断清空 */ }
+    if (loadSession()) {
+      const ok = await runSyncUp({ silent: true });
+      if (ok !== true && hasBusinessLocal()) {
+        // 有业务数据却上传失败：保全数据，不登出不清空
+        toast("备份失败，本机数据未能上传云端，已取消（网络恢复后再试）", "error");
+        return false;
+      }
+    }
     await wipeLocalAll();
     try { if (loadSession()) await serverRequest("/api/auth/logout", { method: "POST" }); } catch (_) { /* 忽略 */ }
     clearSession();
     renderAuthState();
-    toast("本机数据已清空并退出登录", "success");
-  }
-
-  async function doWipeLocal() {
-    if (!confirm("⚠️ 将清空本机上的账本、交易、备忘、偏好、预算，无法在本机找回。\n\n如需保留，请先点「📤 上传云端」再清空。\n\n确定清空吗？")) return;
-    await doWipeFlow();
+    toast("已退出并清空本机数据（云端保留）", "success");
+    return true;
   }
 
   // 抽屉「账号与云端」区域状态
@@ -2297,15 +2300,13 @@
       const sync = loadSyncState();
       stateEl.innerHTML = "已登录：<b>" + escapeHtml(s.user.username || "") + "</b>" +
         (sync && sync.lastAt ? '<br>上次同步 ' + new Date(sync.lastAt).toLocaleTimeString("zh-CN", { hour12: false }) : "") +
-        '<br><span style="font-size:11px;opacity:.8">共享设备退出后请点「清空本机」防泄露</span>';
+        '<br><span style="font-size:11px;opacity:.8">退出会清空本机数据（云端保留，重新登录可恢复）</span>';
       actions.innerHTML = `
         <button class="btn-acct" id="btnSyncUp">📤 上传云端</button>
         <button class="btn-acct ghost" id="btnSyncDown">📥 拉取合并</button>
-        <button class="btn-acct ghost" id="btnAcctWipe" style="color:var(--c-danger)">清空本机</button>
-        <button class="btn-acct ghost" id="btnAuthLogout" title="退出登录">退出</button>`;
+        <button class="btn-acct ghost" id="btnAuthLogout" title="退出登录" style="color:var(--c-danger)">退出并清空</button>`;
       document.getElementById("btnSyncUp").addEventListener("click", () => runSyncUp());
       document.getElementById("btnSyncDown").addEventListener("click", () => runSyncDown());
-      document.getElementById("btnAcctWipe").addEventListener("click", doWipeLocal);
       document.getElementById("btnAuthLogout").addEventListener("click", doLogout);
     } else {
       stateEl.textContent = "未登录 · 数据仅保存在本机";
@@ -2397,17 +2398,18 @@
     }, 12000);
   }
 
+  // 返回 true=本次同步完成（含“无数据可传”）；false=失败 / 被并发跳过
   async function runSyncUp(opts = {}) {
-    if (_syncRunning) return;
+    if (_syncRunning) return false;
     _syncRunning = true;
     setSyncBusy(true);
     const silent = !!opts.silent;
     const note = silent ? (m) => { /* 静默 */ } : (m, t) => toast(m, t || "success");
     try {
-      if (!loadSession()) { if (!silent) toast("请先登录", "error"); return; }
+      if (!loadSession()) { if (!silent) toast("请先登录", "error"); return false; }
       const R = await gatherCloudRows();
       const n = countRows(R);
-      if (!n) { if (!silent) toast("本地暂无数据可上传", "success"); return; }
+      if (!n) { if (!silent) toast("本地暂无数据可上传", "success"); return true; }
       const res = await serverRequest("/api/sync/push", { method: "POST", body: { tables: R } });
       let applied = 0;
       for (const table of Object.keys(res.tables || {})) {
@@ -2418,8 +2420,10 @@
       saveSyncState({ lastAt: Date.now() });
       await refreshAllFromLocal();
       note("已上传 " + n + " 条到云端 ✨" + (applied ? "；回写本地 " + applied + " 条" : ""));
+      return true;
     } catch (e) {
       note("上传失败：" + e.message, "error");
+      return false;
     } finally {
       setSyncBusy(false);
       _syncRunning = false;
