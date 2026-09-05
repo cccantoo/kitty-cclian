@@ -144,6 +144,9 @@
       renderChatHistory();
 
       toast("Kitty 已就绪 ✨", "success");
+
+      // 未登录 → 默认停在登录页（可点 ‹ 返回先以本机模式使用）
+      if (!loadSession()) setTimeout(openAuthScreen, 150);
     } catch (err) {
       console.error("[boot] fail", err);
       toast("初始化失败 " + err.message, "error");
@@ -2320,6 +2323,7 @@
     clearSession();
     renderAuthState();
     toast("已退出并清空本机数据（云端保留）", "success");
+    openAuthScreen(); // 回到登录入口，下一位直接登录
     return true;
   }
 

@@ -2,16 +2,16 @@
  * Kitty 账本 Service Worker — 离线缓存壳
  * 策略：cache-first，对所有同源 GET 请求先查 cache，没有再走网络。
  */
-const CACHE = 'kitty-ledger-v27';
+const CACHE = 'kitty-ledger-v28';
 const ASSETS = [
   './',
   './index.html',
   './manifest.json',
-  './css/style.css?v=27',
-  './css/report.css?v=27',
-  './js/app.js?v=27',
-  './js/db.js?v=27',
-  './js/ai.js?v=27',
+  './css/style.css?v=28',
+  './css/report.css?v=28',
+  './js/app.js?v=28',
+  './js/db.js?v=28',
+  './js/ai.js?v=28',
   './icons/app/icon-192.png',
   './icons/app/icon-512.png',
   './icons/kitty/sweet-home/9_11_house.png',
