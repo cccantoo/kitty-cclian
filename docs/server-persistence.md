@@ -3,7 +3,7 @@
 > 状态：已定稿（2026-09-04）。技术栈：前端 PWA（现有，不变） + 后端 **Node + MySQL**（生产服务器已有 MySQL）
 > 认证：用户名 + 密码（bcrypt） + 服务端 token 表
 > 同步：多设备**双向增量同步**，last-write-wins（按 `updated_at` 毫秒时间戳）
-> 首期上云：账本/账户/分类/交易/预算 + 备忘录 + AI 偏好。聊天记录与 AI API Key 暂不上云。
+> 首期上云：账本/账户/分类/交易/预算 + 备忘录 + AI 偏好 + **聊天记录 messages**。仅 AI API Key 不上云（仍只进本机代理）。
 
 ---
 
@@ -218,7 +218,7 @@ GET /api/sync/pull?since=<ms>&limit=500&table=transactions
 | accounts 挂在 book.accounts | accounts 表 | 拉取后按 book_id 回装 book.accounts |
 | memos/pinned/archived/trashed | 同名列 | 直接同步 |
 | preferences {key,value,source} | preferences(pkey,pvalue,source) | key→pkey |
-| messages 聊天 | 不上云 | 保留本地 |
+| messages 聊天 | messages(id/role/content/tool_cards_json/kind/ts) | 随对话结束自动上传；登出清空后重登可完整恢复 |
 | kitty_ai_config(API Key) | 不上云 | 仍只进本机代理 |
 
 同步时忽略纯本地字段（如 `kitty_active_book` 活动账本、memoUI 视图状态等），不污染云端。
