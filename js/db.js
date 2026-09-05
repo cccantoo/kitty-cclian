@@ -451,12 +451,51 @@
   }
   async function clearMessages() { return this.clear(STORE.MSG); }
 
+  // ---------- 文本日期解析（记账 / AI 用） ----------
+  // 从自然语言提取「哪天」，返回该日 0 点毫秒；识别不出返回 null（调用方回退当前时间）
+  function parseDateText(text) {
+    if (!text) return null;
+    const t = String(text);
+    const relWords = [
+      ["今天", 0], ["今日", 0], ["当天", 0],
+      ["明天", 1], ["明日", 1], ["后天", 2],
+      ["昨天", -1], ["昨日", -1], ["前天", -2], ["大前天", -3]
+    ];
+    for (const [w, off] of relWords) {
+      if (t.includes(w)) return dayStart(off);
+    }
+    const rel = t.match(/(\d{1,3})\s*(?:个)?\s*(?:天|日)\s*(?:前|以前|之前)/);
+    if (rel) return dayStart(-Number(rel[1]));
+    const md = t.match(/(\d{1,2})\s*月\s*(\d{1,2})\s*(?:日|号)/);
+    if (md) {
+      const now = new Date();
+      const d = new Date(now.getFullYear(), Number(md[1]) - 1, Number(md[2]), 12, 0, 0, 0);
+      if (d.getTime() > now.getTime() + 7 * 24 * 3600 * 1000) {
+        d.setFullYear(d.getFullYear() - 1); // 明显晚于今天 → 按去年（补记习惯）
+      }
+      return d.getTime();
+    }
+    const ym = t.match(/(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*(?:日|号)/);
+    if (ym) {
+      return new Date(Number(ym[1]), Number(ym[2]) - 1, Number(ym[3]), 12, 0, 0, 0).getTime();
+    }
+    return null;
+
+    function dayStart(offsetDays) {
+      const n = new Date();
+      n.setDate(n.getDate() + offsetDays);
+      n.setHours(0, 0, 0, 0);
+      return n.getTime();
+    }
+  }
+
   // 全局导出
   global.KLDB = {
     STORE,
     init, openDB,
     add, put, get, all, del, clear, byIndex,
     listTransactions, addTransaction, updateTransaction, deleteTransaction,
+    parseDateText,
     allCategories, addCategory, allPreferences, addPreference, updatePreference, deletePreference,
     allMemos, addMemo, updateMemo, deleteMemo,
     addMessage, allMessages, recentMessages, clearMessages,

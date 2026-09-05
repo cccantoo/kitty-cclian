@@ -193,22 +193,25 @@
         }
         // 分类类型优先（选了支出分类就按支出记）
         const type = cat.type === "income" ? "income" : (args.type === "income" ? "income" : "expense");
+        // 用户原话里带“昨天/前天/N天前/X月X日”时按对应日期记账
+        const txTs = KLDB.parseDateText(ctx.userText) || Date.now();
+        const notToday = new Date(txTs).toDateString() !== new Date().toDateString();
         const id = await KLDB.addTransaction({
           type,
           amount,
           categoryId: cat.id,
           accountId: args.account || "acc-cash",
           note: args.note || "",
-          ts: Date.now(),
+          ts: txTs,
           bookId: KLDB.activeBookId()
         });
         out.wroteTx = true;
         out.cards.push({
           icon: type === "income" ? "🎀" : "🌸",
           title: `已记一笔 · ${cat.name}`,
-          detail: `${type === "income" ? "+" : "-"} ¥ ${amount.toFixed(2)} · ${args.note || ""}`
+          detail: `${type === "income" ? "+" : "-"} ¥ ${amount.toFixed(2)}${notToday ? " · 记于 " + new Date(txTs).toLocaleDateString("zh-CN") : ""}${args.note ? " · " + args.note : ""}`
         });
-        return { ok: true, id, category: cat.name, type };
+        return { ok: true, id, category: cat.name, type, ts: txTs };
       }
 
       case "query_transactions": {
@@ -403,7 +406,7 @@
   // ============================================================
   async function chat({ userText, history, prefs, categories, bookName, accounts, config }) {
     const out = { text: "", cards: [], prefsAdded: [], wroteTx: false, wroteBudget: false };
-    const ctx = { categories: categories || [] };
+    const ctx = { categories: categories || [], userText };
 
     const messages = [
       { role: "system", content: buildSystemPrompt({ prefs, categories: ctx.categories, bookName, accounts }) },

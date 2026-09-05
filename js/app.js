@@ -415,15 +415,18 @@
     const catHit = catMap.find((c) => c.kw.test(userText));
     if (amtMatch && catHit && !prefMatch) {
       const amount = parseFloat(amtMatch[1]);
+      const txTs = KLDB.parseDateText(userText) || Date.now(); // “昨天/前天/N天前/X月X日…”
+      const isToday = new Date(txTs).toDateString() === new Date().toDateString();
+      const dateLabel = new Date(txTs).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
       reply.actions.push({
         type: "addTransaction",
-        data: { type: "expense", amount, categoryId: catHit.id, note: userText.slice(0, 40), ts: Date.now() }
+        data: { type: "expense", amount, categoryId: catHit.id, note: userText.slice(0, 40), ts: txTs }
       });
-      reply.text = `好～记下来了 ✨`;
+      reply.text = isToday ? "好～记下来了 ✨" : "好～帮你记到 " + dateLabel + " ✨";
       reply.cards.push({
         icon: "🌸",
         title: `已记一笔 · ${catHit.name}`,
-        detail: `¥ ${amount.toFixed(2)} · ${new Date().toLocaleDateString("zh-CN")} · ${userText.slice(0, 30)}`
+        detail: `¥ ${amount.toFixed(2)} · ${new Date(txTs).toLocaleDateString("zh-CN")} · ${userText.slice(0, 30)}`
       });
       return reply;
     }
@@ -1040,6 +1043,15 @@
             <label class="form-label">金额</label>
             <input type="number" id="mTxAmt" class="form-input" placeholder="0.00" step="0.01" inputmode="decimal">
           </div>
+          <div class="form-group">
+            <label class="form-label">时间</label>
+            <input type="datetime-local" id="mTxTs" class="form-input" value="${dtLocalValue(new Date())}">
+            <div class="tx-quick">
+              <button type="button" class="tx-quick-btn on" data-day="0">今天</button>
+              <button type="button" class="tx-quick-btn" data-day="-1">昨天</button>
+              <button type="button" class="tx-quick-btn" data-day="-2">前天</button>
+            </div>
+          </div>
           <div id="mTxCatWrap" class="form-group">
             <label class="form-label">分类</label>
             <div class="cat-grid" id="mTxCats"></div>
@@ -1082,17 +1094,19 @@
         const note = document.getElementById("mTxNote").value.trim();
         const type = document.querySelector(".type-toggle button.active").dataset.type;
         if (!amount || amount <= 0) { toast("请填金额", "error"); return false; }
+        const tsEl = document.getElementById("mTxTs");
+        const txTs = tsEl && tsEl.value ? new Date(tsEl.value).getTime() : Date.now();
 
         if (type === "transfer") {
           const from = document.getElementById("mTxAccFrom").value;
           const to = document.getElementById("mTxAccTo").value;
           if (from === to) { toast("转出和转入不能是同一个账户哦", "error"); return false; }
-          await KLDB.addTransaction({ type: "transfer", amount, accountFrom: from, accountTo: to, note, bookId: activeBook().id });
+          await KLDB.addTransaction({ type: "transfer", amount, accountFrom: from, accountTo: to, note, ts: txTs, bookId: activeBook().id });
         } else {
           const catActive = document.querySelector("#mTxCats .cat-cell.active");
           if (!catActive) { toast("选个分类", "error"); return false; }
           await KLDB.addTransaction({
-            type, amount,
+            type, amount, ts: txTs,
             categoryId: catActive.dataset.cat,
             accountId: document.getElementById("mTxAcc").value,
             note,
@@ -1112,6 +1126,24 @@
     // post-render 事件
     const modalEl = document.querySelector(".modal");
     const footerEl = modalEl.querySelector(".modal-footer");
+    // 时间快捷：今天 / 昨天 / 前天（保留 picker 里的时分）
+    const quickBtns = modalEl.querySelectorAll(".tx-quick-btn");
+    quickBtns.forEach((b) => {
+      b.addEventListener("click", () => {
+        const tsEl = document.getElementById("mTxTs");
+        const base = tsEl && tsEl.value ? new Date(tsEl.value) : new Date();
+        base.setDate(base.getDate() + Number(b.dataset.day));
+        if (tsEl) tsEl.value = dtLocalValue(base);
+        quickBtns.forEach((x) => x.classList.toggle("on", x === b));
+      });
+    });
+    const txTsEl = document.getElementById("mTxTs");
+    if (txTsEl) {
+      txTsEl.addEventListener("input", () => {
+        const isToday = txTsEl.value.slice(0, 10) === dtLocalValue(new Date()).slice(0, 10);
+        quickBtns.forEach((x) => x.classList.toggle("on", isToday && x.dataset.day === "0"));
+      });
+    }
     let currentTxType = "expense"; // 新增分类跟随当前类型
 
     // 渲染分类网格
@@ -2729,6 +2761,12 @@
     return String(s ?? "").replace(/[&<>"']/g, (c) => ({
       "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
     }[c]));
+  }
+
+  // 本地时间 → datetime-local 输入值 YYYY-MM-DDTHH:mm
+  function dtLocalValue(d) {
+    const p = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
   }
 
   // ============================================================
